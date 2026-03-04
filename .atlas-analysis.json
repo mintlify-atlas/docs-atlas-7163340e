@@ -1,0 +1,212 @@
+{
+  "projectType": "saas",
+  "projectName": "KAIU Natural Living",
+  "projectDescription": "Modern e-commerce platform with AI-powered WhatsApp chatbot orchestrator for natural living products",
+  "theme": "almond",
+  "primaryColor": "#8B7355",
+  "lightColor": "#A89080",
+  "darkColor": "#6B5645",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/ecommerce",
+              "features/ai-chatbot",
+              "features/admin-dashboard",
+              "features/order-management",
+              "features/inventory"
+            ]
+          },
+          {
+            "group": "Setup & Configuration",
+            "pages": [
+              "setup/installation",
+              "setup/environment-variables",
+              "setup/database-setup",
+              "setup/redis-setup",
+              "setup/whatsapp-integration"
+            ]
+          },
+          {
+            "group": "User Guides",
+            "pages": [
+              "guides/admin-portal",
+              "guides/order-fulfillment",
+              "guides/chatbot-management",
+              "guides/knowledge-base",
+              "guides/payment-integration"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/vercel",
+              "deployment/railway",
+              "deployment/environment-setup"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/introduction",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Public API",
+            "pages": [
+              "api/products",
+              "api/orders",
+              "api/shipping",
+              "api/tracking"
+            ]
+          },
+          {
+            "group": "Admin API",
+            "pages": [
+              "api/admin/overview",
+              "api/admin/orders",
+              "api/admin/inventory",
+              "api/admin/knowledge-base",
+              "api/admin/dashboard-stats"
+            ]
+          },
+          {
+            "group": "WhatsApp Integration",
+            "pages": [
+              "api/whatsapp/webhooks",
+              "api/whatsapp/queue-system",
+              "api/whatsapp/session-management"
+            ]
+          },
+          {
+            "group": "Payment Integration",
+            "pages": [
+              "api/payments/wompi-integration",
+              "api/payments/webhooks"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "AI & RAG",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "ai/introduction",
+              "ai/architecture"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "ai/rag-system",
+              "ai/tools-functions",
+              "ai/handover-protocol",
+              "ai/pii-privacy"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "ai/setup",
+              "ai/knowledge-base-management",
+              "ai/prompt-engineering"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Development",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "development/local-development",
+              "development/project-structure"
+            ]
+          },
+          {
+            "group": "Database",
+            "pages": [
+              "development/prisma-schema",
+              "development/migrations",
+              "development/seeding"
+            ]
+          },
+          {
+            "group": "Testing",
+            "pages": [
+              "development/testing",
+              "development/debugging"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "development/contributing",
+              "development/code-style"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "AI-powered WhatsApp chatbot with RAG (Retrieval Augmented Generation)",
+    "Full e-commerce platform with React + Vite frontend",
+    "PostgreSQL database with pgvector for semantic search",
+    "Admin dashboard for order management and logistics",
+    "BullMQ + Redis queue system for async message processing",
+    "Real-time WebSocket communication via Socket.IO",
+    "Anthropic Claude 3.5 Sonnet integration with function calling",
+    "WhatsApp Cloud API integration with handover protocol",
+    "Wompi payment gateway integration",
+    "Venndelo logistics API for shipping and tracking",
+    "Automated inventory management and stock control",
+    "Knowledge base management with RAG capabilities",
+    "PII filtering and privacy protection",
+    "Multi-role user system (Admin, Warehouse, Support, Customer)"
+  ],
+  "publicApiSurface": [
+    "POST /api/create-order",
+    "POST /api/quote-shipping",
+    "GET /api/track-order",
+    "GET /api/products",
+    "POST /api/wompi/sign",
+    "POST /api/wompi/webhook",
+    "GET /api/wompi/check-transaction/:id",
+    "POST /api/admin/login",
+    "GET /api/admin/orders",
+    "POST /api/admin/generate-label",
+    "POST /api/admin/confirm-order",
+    "POST /api/admin/request-pickup",
+    "GET /api/admin/dashboard-stats",
+    "GET /api/admin/inventory",
+    "POST /api/admin/inventory",
+    "PUT /api/admin/inventory",
+    "ALL /api/admin/knowledge",
+    "POST /api/admin/sync-shipments",
+    "POST /api/whatsapp/webhook",
+    "GET /api/whatsapp/webhook"
+  ]
+}
