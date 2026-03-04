@@ -1,80 +1,320 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: 'Quickstart Guide'
+description: 'Get started with KAIU Natural Living - from browsing products to placing your first order'
 ---
 
-## Get started in three steps
+## Welcome to KAIU Natural Living
 
-Get your documentation site running locally and make your first customization.
+KAIU Natural Living is a modern e-commerce platform offering 100% pure and natural products, powered by an AI chatbot orchestrator for WhatsApp support. This guide will walk you through creating an account, browsing products, and placing your first order.
 
-### Step 1: Set up your local environment
+<Steps>
+  <Step title="Access the Platform">
+    Start by accessing the KAIU Natural Living platform:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+    **For Regular Users:**
+    1. Navigate to the homepage
+    2. Click on "Iniciar Sesión" (Login) or "Registrarse" (Register)
+    3. Complete the registration form with your details
+
+    **For Admin/Testing Access:**
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    If you need admin access for testing purposes, you can use the dashboard:
+
+    ```bash
+    # Access the admin dashboard at:
+    http://localhost:5173/dashboard
+    ```
+
+    The dashboard provides:
+    - Real-time order management
+    - AI chatbot oversight and human handover
+    - Customer conversation history
+    - Product catalog management
+
+  </Step>
+
+  <Step title="Browse the Product Catalog">
+    Once logged in, explore the natural product catalog:
+
+    **Navigation:**
+    - Visit `/catalogo` to see all available products
+    - Products are categorized (all categories except "Kits" are displayed)
+    - Use the search bar to find specific products or benefits
+
+    **Filtering Options:**
+
+    The catalog offers multiple ways to find the perfect product:
+
+    ```tsx
+    // Search by name or benefits
+    searchQuery: "Lavanda, Relax..."
+
+    // Filter by category
+    categories: ['Todos', 'Aceites Esenciales', 'Hidrolatos', ...]
+
+    // Filter by benefits
+    benefits: ['Relajante', 'Energizante', 'Antiséptico', ...]
+    ```
+
+    **View Modes:**
+    - **Grid View**: Cards displaying product images and key info
+    - **List View**: Detailed list format (default on mobile)
+
+    **Product Information:**
+    Each product card shows:
+    - Product name and image
+    - Category
+    - Benefits (comma-separated tags)
+    - Available variants (sizes/presentations)
+    - Price per variant
+
+  </Step>
+
+  <Step title="Add Products to Cart">
+    Select products and add them to your shopping cart:
+
+    **Adding to Cart:**
+    1. Click on a product card to view details
+    2. Select your preferred variant (size/presentation)
+    3. Adjust quantity if needed
+    4. Click "Agregar al Carrito" (Add to Cart)
+
+    **Cart Management:**
+    ```tsx
+    // The cart context provides:
+    - items: Array of selected products
+    - itemCount: Total number of items
+    - cartTotal: Subtotal before shipping
+    - addItem(), removeItem(), updateQuantity(), clearCart()
+    ```
+
+    **Product Variants:**
+    Each product may have different presentations with unique:
+    - SKU (stock keeping unit)
+    - Price
+    - Weight, dimensions (for shipping calculation)
+
+  </Step>
+
+  <Step title="Complete Checkout">
+    Proceed to checkout and complete your order:
+
+    **Access Checkout:**
+    - Click on your cart icon
+    - Review items
+    - Click "Proceder al Pago" (Proceed to Payment)
+    - You'll be redirected to `/checkout`
+
+    **Required Information:**
+
+    Fill out the checkout form with:
+
+    ```tsx
+    {
+      // Personal Information
+      nombre: "Full Name (First and Last)",
+      email: "user@example.com",
+      telefono: "3XXXXXXXXX", // 10-digit Colombian mobile
+      identificacion: "12345678", // 5-12 digit ID
+
+      // Shipping Address
+      departamento_code: "05", // Department code
+      ciudad_code: "05001", // City code
+      direccion: "Street Address",
+      barrio: "Neighborhood",
+      notas: "Optional delivery notes",
+
+      // Payment Method
+      payment_method: "COD" | "EXTERNAL_PAYMENT",
+      termsAccepted: true
+    }
+    ```
+
+    **Field Validations:**
+    - **Name**: Letters and spaces only, minimum 2 words
+    - **Phone**: Must start with 3, exactly 10 digits
+    - **Email**: Valid email format
+    - **Address**: Minimum 10 characters
+    - **Identification**: 5-12 digits
+
+    **Shipping Calculation:**
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    Shipping costs are automatically calculated based on:
+    - Selected city and department
+    - Product weights and dimensions
+    - Payment method
+    - Total order value
 
-### Step 2: Deploy your changes
+    ```bash
+    # Shipping is quoted via API:
+    POST /api/quote-shipping
+    {
+      "city_code": "05001",
+      "subdivision_code": "05",
+      "line_items": [...],
+      "payment_method_code": "COD"
+    }
+    ```
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    **Payment Options:**
+
+    1. **Cash on Delivery (COD)**
+       - Pay when you receive your order
+       - Select `payment_method: "COD"`
+
+    2. **Online Payment via Wompi**
+       - Secure payment gateway
+       - Credit/debit cards accepted
+       - Select `payment_method: "EXTERNAL_PAYMENT"`
+
+    **Submit Your Order:**
+
+    ```tsx
+    // Order payload structure
+    {
+      billing_info: {
+        first_name, last_name, email, phone,
+        identification_type: "CC",
+        identification
+      },
+      shipping_info: {
+        first_name, last_name, address_1,
+        city_code, subdivision_code,
+        country_code: "CO", phone
+      },
+      line_items: [
+        {
+          sku, name, unit_price, quantity,
+          weight, weight_unit: "KG",
+          dimensions_unit: "CM",
+          height, width, length,
+          type: "STANDARD"
+        }
+      ],
+      payment_method_code,
+      external_order_id,
+      discounts: []
+    }
+    ```
+
+    After submission, you'll receive:
+    - Order confirmation with order ID
+    - Redirect to success page
+    - Cart is automatically cleared
+
+  </Step>
+
+  <Step title="Track Your Order">
+    Monitor your order status after placement:
+
+    **Order Confirmation:**
+    - You'll be redirected to `/checkout/success`
+    - Order details include:
+      - Order ID (readable format: `KAIU-XXXX`)
+      - Total amount paid
+      - Shipping information
+
+    **Order Tracking:**
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    Your order is created in the system with:
+    ```tsx
+    {
+      order: {
+        readable_id: "KAIU-1234", // User-friendly order number
+        db_id: 123,                // Database ID
+        external_id: "KAIU-...",   // External reference
+        status: "pending",
+        ...orderDetails
+      }
+    }
+    ```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    **WhatsApp Support:**
+    
+    For order updates and customer support:
+    - KAIU's AI chatbot is available 24/7 via WhatsApp
+    - Powered by Anthropic Claude 3.5 Sonnet
+    - Uses RAG (Retrieval Augmented Generation) for accurate responses
+    - Request human agent by asking for "humano" if needed
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    **Admin Dashboard Tracking:**
+    
+    Admins can monitor orders at `/dashboard`:
+    - View all orders in real-time
+    - See order status updates
+    - Manage fulfillment
+    - Access customer conversations
 
-### Step 3: Go live
+  </Step>
+</Steps>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
+## Next Steps
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Explore Products" icon="leaf" href="/products">
+    Browse our full catalog of 100% natural products including essential oils, hydrosols, and natural remedies
+  </Card>
+  
+  <Card title="AI Chatbot Integration" icon="robot" href="/ai-chatbot">
+    Learn how the AI-powered WhatsApp assistant helps customers 24/7 with product recommendations and support
+  </Card>
+  
+  <Card title="Admin Dashboard" icon="chart-line" href="/admin-dashboard">
+    Discover how to manage orders, inventory, and customer conversations through the admin panel
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api-reference">
+    Integrate with KAIU's APIs for orders, shipping quotes, and payment processing
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## Architecture Overview
+
+KAIU Natural Living runs on a modern, scalable stack:
+
+```bash
+# Frontend
+React + Vite + TailwindCSS
+
+# Backend
+Node.js + Express + Prisma ORM
+
+# Database
+PostgreSQL (Supabase) with pgvector extension
+
+# AI & Messaging
+Anthropic Claude 3.5 Sonnet + LangChain
+WhatsApp Cloud API + BullMQ + Redis
+```
+
+## Local Development
+
+To run KAIU Natural Living locally:
+
+```bash
+# Install dependencies
+npm install
+
+# Configure environment variables
+cp .env.example .env.local
+# Edit .env.local with your credentials
+
+# Initialize database
+npx prisma db push
+npm run seed  # Optional: Load sample data
+
+# Start all services (Redis, Backend, Frontend)
+./START_ALL.sh
+```
+
+The application will be available at:
+- **Frontend**: `http://localhost:5173`
+- **Backend API**: `http://localhost:3001`
+- **Dashboard**: `http://localhost:5173/dashboard`
+
+## Need Help?
+
+- Contact support via WhatsApp (AI assistant available 24/7)
+- Request human agent by typing "humano" in the chat
+- Access the admin dashboard for order management
+- Check the API documentation for integration details

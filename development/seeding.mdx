@@ -1,0 +1,342 @@
+---
+title: Database Seeding
+description: Populating the database with initial data
+---
+
+## Overview
+
+The seeding process populates your database with initial data required for development and testing. KAIU's seed script is located at `prisma/seed.ts`.
+
+## Running the Seed Script
+
+```bash
+npm run seed
+```
+
+This command is configured in `package.json`:
+
+```json
+{
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}
+```
+
+## What Gets Seeded
+
+The seed script populates two main areas:
+
+1. **Initial Products** - Sample product catalog
+2. **Admin Users** - System administrators from environment variables
+
+## Seed Script Breakdown
+
+### Imports and Setup
+
+```typescript
+import { PrismaClient } from '@prisma/client';
+import 'dotenv/config';
+import bcrypt from 'bcryptjs';
+
+const prisma = new PrismaClient();
+```
+
+### Product Seeding
+
+Two initial products are created:
+
+#### 1. Aceite Esencial de Lavanda
+
+```typescript
+{
+  sku: 'ACE-LAV-10ML',
+  name: 'Aceite Esencial de Lavanda',
+  slug: 'aceite-esencial-lavanda',
+  description: 'Aceite 100% puro para relajación y sueño profundo.',
+  benefits: 'Sueño, Relajación, Ansiedad',
+  price: 45000,  // 45,000 COP in cents
+  stock: 100,
+  category: 'Aceites Esenciales',
+  variantName: 'Gotero 10ml',
+  weight: 0.2,    // kg
+  width: 10,      // cm
+  height: 10,
+  length: 10,
+  images: ['https://images.unsplash.com/photo-1608571423902-eed4a5ad8108...']
+}
+```
+
+#### 2. Kit Sueño Profundo
+
+```typescript
+{
+  sku: 'KIT-SUEÑO-PRO',
+  name: 'Kit Sueño Profundo',
+  slug: 'kit-sueno-profundo',
+  description: 'La combinación perfecta para descansar mejor.',
+  benefits: 'Sueño reparador, Calma mental',
+  price: 85000,   // 85,000 COP
+  stock: 50,
+  category: 'Kits',
+  variantName: 'Standard',
+  weight: 0.5,
+  width: 15,
+  height: 10,
+  length: 20,
+  images: ['https://images.unsplash.com/photo-1515377905703-c4788e51af15...']
+}
+```
+
+**Upsert Strategy:**
+
+```typescript
+for (const p of INITIAL_PRODUCTS) {
+  await prisma.product.upsert({
+    where: { sku: p.sku },
+    update: {},              // Don't overwrite if exists
+    create: p                // Create if doesn't exist
+  });
+}
+```
+
+Products are upserted by SKU, so running the seed multiple times won't create duplicates.
+
+### Admin User Seeding
+
+Admin users are loaded from environment variables:
+
+```typescript
+let adminUsers = [];
+try {
+  if (process.env.KAIU_ADMIN_USERS) {
+    adminUsers = JSON.parse(process.env.KAIU_ADMIN_USERS);
+  }
+} catch (e) { 
+  console.warn("Invalid Admin JSON env"); 
+}
+```
+
+**Environment Variable Format:**
+
+```bash
+KAIU_ADMIN_USERS='[{"username":"admin@kaiu.com","pin":"1234"}]'
+```
+
+**Password Hashing:**
+
+```typescript
+for (const u of adminUsers) {
+  if (!u.username || !u.pin) continue;
+  const hashedPassword = await bcrypt.hash(u.pin, 10);
+  
+  await prisma.user.upsert({
+    where: { email: u.username },
+    update: { password: hashedPassword, role: 'ADMIN' },
+    create: {
+      email: u.username,
+      password: hashedPassword,
+      name: `Admin ${u.username}`,
+      role: 'ADMIN'
+    }
+  });
+}
+```
+
+Passwords are hashed with bcrypt (10 salt rounds) before storage.
+
+## Configuration
+
+### Setting Up Admin Users
+
+In your `.env` or `.env.local`:
+
+```bash
+KAIU_ADMIN_USERS='[
+  {"username":"admin@kaiu.com","pin":"secure_password_123"},
+  {"username":"owner@kaiu.com","pin":"another_secure_pass"}
+]'
+```
+
+**Important:** Use strong passwords in production!
+
+### Database Connection
+
+Ensure `DATABASE_URL` is set in `prisma/.env`:
+
+```bash
+DATABASE_URL="postgresql://user:password@localhost:5432/kaiu_db"
+```
+
+## Custom Seeding
+
+### Adding More Products
+
+Edit `prisma/seed.ts` and add to the `INITIAL_PRODUCTS` array:
+
+```typescript
+const INITIAL_PRODUCTS = [
+  // ... existing products
+  {
+    sku: 'ACE-MEN-15ML',
+    name: 'Aceite Esencial de Menta',
+    slug: 'aceite-esencial-menta',
+    description: 'Aceite refrescante para energía y concentración.',
+    benefits: 'Energía, Concentración, Digestión',
+    price: 48000,
+    stock: 80,
+    category: 'Aceites Esenciales',
+    variantName: 'Gotero 15ml',
+    weight: 0.25,
+    width: 10,
+    height: 12,
+    length: 10,
+    images: ['https://images.unsplash.com/photo-...']
+  }
+];
+```
+
+### Seeding Other Models
+
+Add custom seeding logic to the `main()` function:
+
+```typescript
+async function main() {
+  console.log('🌱 Starting seed...');
+
+  // Existing product seeding...
+  
+  // Seed knowledge base
+  await prisma.knowledgeBase.create({
+    data: {
+      content: 'La lavanda es conocida por sus propiedades relajantes...',
+      metadata: {
+        source: 'faq',
+        title: 'Beneficios de la Lavanda'
+      }
+    }
+  });
+
+  console.log('🏁 Seeding finished.');
+}
+```
+
+## Seeding Workflow
+
+<Steps>
+
+### Reset Database (Optional)
+
+If you want a clean slate:
+
+```bash
+npx prisma migrate reset
+```
+
+This will:
+1. Drop the database
+2. Recreate it
+3. Apply all migrations
+4. Run the seed script
+
+### Run Seed Independently
+
+```bash
+npm run seed
+```
+
+### Verify Data
+
+```bash
+npx prisma studio
+```
+
+Check that products and users were created.
+
+</Steps>
+
+## Seed Output
+
+Expected console output:
+
+```
+🌱 Starting seed...
+📦 Seeding 2 products...
+✅ Products seeded.
+🔐 Seeding 1 Admin Users...
+✅ Admin synced: admin@kaiu.com
+🏁 Seeding finished.
+```
+
+## Production Considerations
+
+### Don't Seed Production
+
+The seed script is for **development and staging only**. Production data should come from:
+- Admin panel product management
+- Data imports
+- Manual database operations
+
+### Sensitive Data
+
+Never commit sensitive data to `seed.ts`. Always use environment variables:
+
+```typescript
+// ❌ Bad - hardcoded credentials
+const ADMIN_PASSWORD = 'admin123';
+
+// ✅ Good - from environment
+const ADMIN_PASSWORD = process.env.INITIAL_ADMIN_PASSWORD;
+```
+
+## Testing with Seeds
+
+Use seeded data in tests:
+
+```typescript
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+test('fetch lavender product', async () => {
+  const product = await prisma.product.findUnique({
+    where: { sku: 'ACE-LAV-10ML' }
+  });
+  
+  expect(product).toBeDefined();
+  expect(product.name).toBe('Aceite Esencial de Lavanda');
+});
+```
+
+## Troubleshooting
+
+### "Invalid Admin JSON env"
+
+Check your environment variable format:
+
+```bash
+# Wrong - not valid JSON
+KAIU_ADMIN_USERS=admin@kaiu.com:1234
+
+# Correct
+KAIU_ADMIN_USERS='[{"username":"admin@kaiu.com","pin":"1234"}]'
+```
+
+### Duplicate Key Errors
+
+If you see constraint violations, the data already exists. The seed script uses `upsert` to prevent this, but manual database changes might cause conflicts.
+
+### Connection Errors
+
+Ensure PostgreSQL is running and `DATABASE_URL` is correct:
+
+```bash
+# Test connection
+npx prisma db pull
+```
+
+## Next Steps
+
+- Learn about [Database Migrations](/development/migrations)
+- Review [Prisma Schema](/development/prisma-schema)
+- Explore [Testing Guide](/development/testing)

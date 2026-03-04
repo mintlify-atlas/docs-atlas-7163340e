@@ -1,0 +1,167 @@
+---
+title: 'Get Products'
+description: 'Retrieve product catalog'
+---
+
+## GET /api/products
+
+Retrieves the product catalog with all active products. This endpoint provides backward compatibility with the legacy SheetDB format.
+
+### Query Parameters
+
+<ParamField query="sheet" type="string">
+  Optional filter by category/sheet name (e.g., "Kits", "Productos"). If omitted, returns all products.
+</ParamField>
+
+### Response
+
+Returns an array of product objects in legacy SheetDB format.
+
+<ResponseField name="SKU" type="string">
+  Product SKU identifier
+</ResponseField>
+
+<ResponseField name="NOMBRE" type="string">
+  Product name
+</ResponseField>
+
+<ResponseField name="DESCRIPCION_LARGA" type="string">
+  Full product description
+</ResponseField>
+
+<ResponseField name="DESCRIPCION_CORTA" type="string">
+  Short description (first 100 characters)
+</ResponseField>
+
+<ResponseField name="PRECIO" type="string">
+  Product price as string
+</ResponseField>
+
+<ResponseField name="STOCK" type="string">
+  Stock status: "DISPONIBLE" or "AGOTADO"
+</ResponseField>
+
+<ResponseField name="IMAGEN_URL" type="string">
+  Primary product image URL
+</ResponseField>
+
+<ResponseField name="CATEGORIA" type="string">
+  Product category (e.g., "General", "Kits")
+</ResponseField>
+
+<ResponseField name="BENEFICIOS" type="string">
+  Product benefits description
+</ResponseField>
+
+<ResponseField name="PESO" type="string">
+  Weight in kilograms (default: "0.2")
+</ResponseField>
+
+<ResponseField name="ALTO" type="string">
+  Height in centimeters (default: "10")
+</ResponseField>
+
+<ResponseField name="ANCHO" type="string">
+  Width in centimeters (default: "10")
+</ResponseField>
+
+<ResponseField name="LARGO" type="string">
+  Length in centimeters (default: "10")
+</ResponseField>
+
+<ResponseField name="VARIANT_NAME" type="string">
+  Variant name if applicable
+</ResponseField>
+
+### Example Request
+
+```bash
+curl http://localhost:3001/api/products
+```
+
+### Example Request with Filter
+
+```bash
+curl http://localhost:3001/api/products?sheet=Kits
+```
+
+### Example Response
+
+```json
+[
+  {
+    "SKU": "SERUM-VITAMIN-C",
+    "NOMBRE": "Serum Vitamina C",
+    "DESCRIPCION_LARGA": "Serum facial con vitamina C para iluminar y revitalizar la piel. Fórmula natural con ingredientes orgánicos.",
+    "DESCRIPCION_CORTA": "Serum facial con vitamina C para iluminar y revitalizar la piel. Fórmula natural con ingredient...",
+    "PRECIO": "89000",
+    "STOCK": "DISPONIBLE",
+    "IMAGEN_URL": "https://example.com/serum-vitamin-c.jpg",
+    "CATEGORIA": "Serums",
+    "BENEFICIOS": "Ilumina, revitaliza, reduce manchas",
+    "PESO": "0.15",
+    "ALTO": "12",
+    "ANCHO": "4",
+    "LARGO": "4",
+    "VARIANT_NAME": ""
+  },
+  {
+    "SKU": "KIT-FACIAL-COMPLETO",
+    "NOMBRE": "Kit Facial Completo",
+    "DESCRIPCION_LARGA": "Kit completo para el cuidado facial. Incluye limpiador, tónico, serum y crema hidratante.",
+    "DESCRIPCION_CORTA": "Kit completo para el cuidado facial. Incluye limpiador, tónico, serum y crema hidratante.",
+    "PRECIO": "250000",
+    "STOCK": "DISPONIBLE",
+    "IMAGEN_URL": "https://example.com/kit-facial.jpg",
+    "CATEGORIA": "Kits",
+    "BENEFICIOS": "Rutina completa, ahorro, productos complementarios",
+    "PESO": "0.8",
+    "ALTO": "20",
+    "ANCHO": "15",
+    "LARGO": "10",
+    "VARIANT_NAME": ""
+  }
+]
+```
+
+## Data Source
+
+Products are fetched from the PostgreSQL database using Prisma ORM. Only products with `isActive: true` are returned.
+
+## Caching
+
+The endpoint includes cache control headers to prevent caching:
+
+```
+Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate
+```
+
+## Legacy Format
+
+<Note>
+This endpoint maintains backward compatibility with the legacy SheetDB integration. The response format uses uppercase field names and string values for prices to match the original implementation.
+</Note>
+
+## Filtering Logic
+
+When a `sheet` parameter is provided:
+- Filters products where `CATEGORIA` contains the sheet name
+- Or where `NOMBRE` contains the sheet name
+- Case-sensitive partial match
+
+## Error Responses
+
+### 500 Internal Server Error
+
+```json
+{
+  "error": "Failed to fetch products from DB",
+  "details": "Database connection error"
+}
+```
+
+## CORS Headers
+
+The endpoint includes CORS headers:
+- `Access-Control-Allow-Credentials: true`
+- `Access-Control-Allow-Origin: *`

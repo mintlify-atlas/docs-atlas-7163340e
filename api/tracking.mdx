@@ -1,0 +1,239 @@
+---
+title: 'Track Order'
+description: 'Track order status and shipment information'
+---
+
+## GET /api/track-order
+
+Tracks an order by its ID, returning current status and shipment details. Supports multiple ID formats for flexible lookups.
+
+### Query Parameters
+
+<ParamField query="id" type="string" required>
+  Order identifier. Accepts multiple formats:
+  - Readable order ID (e.g., "1050")
+  - Database UUID
+  - Venndelo external ID
+  - Tracking number/guide
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string">
+  Venndelo order ID
+</ResponseField>
+
+<ResponseField name="readable_id" type="number">
+  Human-readable KAIU order number (e.g., 1050)
+</ResponseField>
+
+<ResponseField name="pin" type="string">
+  Venndelo PIN number
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Order status: `PENDING`, `APPROVED`, `SENT`, `DELIVERED`, `CANCELLED`
+</ResponseField>
+
+<ResponseField name="fulfillment_status" type="string">
+  Fulfillment status from logistics provider
+</ResponseField>
+
+<ResponseField name="tracking_url" type="string">
+  URL for tracking shipment on carrier website
+</ResponseField>
+
+<ResponseField name="carrier" type="string">
+  Carrier name (e.g., "Coordinadora", "Servientrega")
+</ResponseField>
+
+<ResponseField name="tracking_number" type="string">
+  Carrier tracking/guide number
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  Order creation timestamp (ISO 8601)
+</ResponseField>
+
+<ResponseField name="total" type="number">
+  Total order amount
+</ResponseField>
+
+### Example Request by Readable ID
+
+```bash
+curl http://localhost:3001/api/track-order?id=1050
+```
+
+### Example Request by Tracking Number
+
+```bash
+curl http://localhost:3001/api/track-order?id=70012345678901
+```
+
+### Example Response
+
+```json
+{
+  "id": "VND-2026-001234",
+  "readable_id": 1050,
+  "pin": "567890",
+  "status": "SENT",
+  "fulfillment_status": "IN_TRANSIT",
+  "tracking_url": "https://www.coordinadora.com/portafolio-de-servicios/servicios-online/rastreo/",
+  "carrier": "Coordinadora",
+  "tracking_number": "70012345678901",
+  "created_at": "2026-03-04T10:30:00.000Z",
+  "total": 104500
+}
+```
+
+## Order Status Values
+
+| Status | Description |
+|--------|-------------|
+| `PENDING` | Order created, awaiting payment/confirmation |
+| `APPROVED` | Payment confirmed, ready for fulfillment |
+| `SENT` | Shipment created and picked up by carrier |
+| `DELIVERED` | Package delivered to customer |
+| `CANCELLED` | Order cancelled |
+
+## Fulfillment Status Values
+
+Fulfillment status provides more granular tracking:
+
+| Status | Description |
+|--------|-------------|
+| `PENDING` | Awaiting pickup |
+| `PICKED_UP` | Picked up by carrier |
+| `IN_TRANSIT` | In transit to destination |
+| `OUT_FOR_DELIVERY` | Out for delivery |
+| `DELIVERED` | Successfully delivered |
+| `FAILED` | Delivery failed |
+| `RETURNED` | Returned to sender |
+
+## ID Resolution Strategy
+
+The endpoint uses intelligent ID resolution:
+
+1. **Numeric check**: If the ID is a number ≤ 2,147,483,647, it's treated as a readable ID
+2. **Database lookup**: Searches by `readableId`, UUID `id`, `externalId`, and `trackingNumber`
+3. **Venndelo query**: Fetches the last 100 orders from Venndelo API
+4. **Match**: Finds matching order by ID, PIN, or tracking number
+5. **Fallback**: Returns local database data if not found in Venndelo
+
+<Info>
+The endpoint searches the last 100 orders from Venndelo. For older orders not in this range, it returns data from the local database.
+</Info>
+
+## Data Privacy
+
+<Warning>
+The response includes only safe, customer-facing fields. Sensitive information like payment details, customer PII, and internal notes are filtered out.
+</Warning>
+
+## Example: Local Database Fallback
+
+If an order exists in the database but not in Venndelo's last 100 orders:
+
+```json
+{
+  "id": "VND-2025-000123",
+  "readable_id": 123,
+  "status": "DELIVERED",
+  "created_at": "2025-11-15T14:20:00.000Z",
+  "total": 95000,
+  "carrier": "Coordinadora",
+  "tracking_number": "70098765432109",
+  "tracking_url": "https://www.coordinadora.com/portafolio-de-servicios/servicios-online/rastreo/"
+}
+```
+
+## Error Responses
+
+### 400 Bad Request - Missing ID
+
+```json
+{
+  "error": "Falta parametro ID"
+}
+```
+
+### 404 Not Found
+
+```json
+{
+  "error": "Orden no encontrada en sistema logístico."
+}
+```
+
+### 405 Method Not Allowed
+
+```json
+{
+  "error": "Método no permitido"
+}
+```
+
+### 500 Internal Server Error
+
+```json
+{
+  "error": "Error Interno"
+}
+```
+
+### 502 Bad Gateway - Venndelo API Error
+
+If the Venndelo API returns an error, the endpoint returns:
+
+```json
+{
+  "error": "Error consultando Venndelo"
+}
+```
+
+## Integration with Venndelo
+
+The endpoint integrates with Venndelo's API:
+
+```
+GET https://api.venndelo.com/v1/admin/orders?page_size=100&status=ANY
+```
+
+Headers:
+```
+X-Venndelo-Api-Key: YOUR_API_KEY
+```
+
+## CORS Headers
+
+The endpoint includes full CORS support:
+- `Access-Control-Allow-Origin: *`
+- `Access-Control-Allow-Methods: GET, OPTIONS`
+- `Access-Control-Allow-Credentials: true`
+
+## Performance Considerations
+
+- **Database Query**: ~10-50ms
+- **Venndelo API Call**: ~500-2000ms
+- **Total Response Time**: ~600-2500ms
+
+<Tip>
+For better performance, consider implementing a caching layer for frequently tracked orders (5-minute cache TTL).
+</Tip>
+
+## Using Readable IDs
+
+Readable IDs are customer-friendly order numbers:
+
+```bash
+# Customer sees: "Your order #1050"
+curl http://localhost:3001/api/track-order?id=1050
+```
+
+These are auto-incrementing integers stored in the database, making them easier for customers to remember and communicate than UUIDs.
+
+## Tracking URL Format
+
+The `tracking_url` field provides a direct link to the carrier's tracking page. Customers can click this link to see real-time updates on the carrier's website.

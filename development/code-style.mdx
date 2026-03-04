@@ -1,0 +1,568 @@
+---
+title: Code Style Guide
+description: Coding standards and best practices for KAIU Natural Living
+---
+
+## Overview
+
+Consistent code style improves readability and maintainability. This guide covers TypeScript, React, and JavaScript standards for the KAIU codebase.
+
+## TypeScript Guidelines
+
+### Type Definitions
+
+Always define explicit types for function parameters and return values:
+
+```typescript
+// Good
+function formatPrice(price: number): string {
+  return `$${price.toLocaleString('es-CO')}`;
+}
+
+// Avoid
+function formatPrice(price) {
+  return `$${price.toLocaleString('es-CO')}`;
+}
+```
+
+### Interfaces vs Types
+
+Use interfaces for object shapes:
+
+```typescript
+// Preferred
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+  stock: number;
+}
+
+// Use type for unions, primitives, utilities
+type Status = 'pending' | 'confirmed' | 'shipped';
+type ProductWithCategory = Product & { category: string };
+```
+
+### Avoid `any`
+
+Never use `any` - use `unknown` or proper types:
+
+```typescript
+// Bad
+function processData(data: any) { ... }
+
+// Good
+function processData(data: unknown) {
+  if (typeof data === 'object' && data !== null) {
+    // Safe to use
+  }
+}
+
+// Better
+interface ApiResponse {
+  status: number;
+  data: Product[];
+}
+
+function processData(response: ApiResponse) { ... }
+```
+
+### Optional Properties
+
+```typescript
+interface User {
+  id: string;
+  email: string;
+  name?: string;  // Optional
+  role: Role;
+}
+```
+
+### Enums
+
+Use string enums for better debugging:
+
+```typescript
+enum OrderStatus {
+  PENDING = 'PENDING',
+  CONFIRMED = 'CONFIRMED',
+  SHIPPED = 'SHIPPED',
+  DELIVERED = 'DELIVERED'
+}
+```
+
+## React Best Practices
+
+### Component Structure
+
+```typescript
+// 1. Imports
+import { useState, useEffect } from 'react';
+import { Button } from '@/components/ui/button';
+import { formatPrice } from '@/lib/utils';
+
+// 2. Types/Interfaces
+interface ProductCardProps {
+  product: Product;
+  onAddToCart: (productId: string) => void;
+}
+
+// 3. Component
+export function ProductCard({ product, onAddToCart }: ProductCardProps) {
+  // 4. Hooks
+  const [quantity, setQuantity] = useState(1);
+  
+  // 5. Effects
+  useEffect(() => {
+    // Side effects
+  }, []);
+  
+  // 6. Event Handlers
+  const handleAddToCart = () => {
+    onAddToCart(product.id);
+  };
+  
+  // 7. Early Returns
+  if (!product) return null;
+  
+  // 8. Render
+  return (
+    <div className="product-card">
+      <h3>{product.name}</h3>
+      <p>{formatPrice(product.price)}</p>
+      <Button onClick={handleAddToCart}>Add to Cart</Button>
+    </div>
+  );
+}
+```
+
+### Functional Components
+
+Always use functional components with hooks:
+
+```typescript
+// Preferred
+function ProductList() {
+  const [products, setProducts] = useState<Product[]>([]);
+  return <div>{/* ... */}</div>;
+}
+
+// Avoid class components
+class ProductList extends React.Component { ... }
+```
+
+### Props Destructuring
+
+```typescript
+// Good - Destructure in parameters
+function UserProfile({ name, email, avatar }: UserProfileProps) {
+  return <div>{name}</div>;
+}
+
+// Avoid - Props object
+function UserProfile(props: UserProfileProps) {
+  return <div>{props.name}</div>;
+}
+```
+
+### Custom Hooks
+
+Extract reusable logic:
+
+```typescript
+// hooks/useProducts.ts
+export function useProducts() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  
+  useEffect(() => {
+    fetchProducts()
+      .then(setProducts)
+      .catch(setError)
+      .finally(() => setLoading(false));
+  }, []);
+  
+  return { products, loading, error };
+}
+
+// Usage
+function ProductList() {
+  const { products, loading, error } = useProducts();
+  // ...
+}
+```
+
+### Conditional Rendering
+
+```typescript
+// Good - Early return
+if (loading) return <Spinner />;
+if (error) return <ErrorMessage error={error} />;
+if (!products.length) return <EmptyState />;
+
+return <ProductGrid products={products} />;
+
+// Avoid - Nested ternaries
+return loading ? <Spinner /> : error ? <Error /> : products.length ? <Grid /> : <Empty />;
+```
+
+### Event Handlers
+
+```typescript
+// Inline for simple cases
+<Button onClick={() => setCount(count + 1)}>Increment</Button>
+
+// Named function for complex logic
+const handleSubmit = async (e: FormEvent) => {
+  e.preventDefault();
+  // Complex logic
+};
+
+<form onSubmit={handleSubmit}>...</form>
+```
+
+## Naming Conventions
+
+### Files and Folders
+
+```
+// Components - PascalCase
+ProductCard.tsx
+CheckoutForm.tsx
+
+// Utilities - camelCase
+formatPrice.ts
+calculateShipping.ts
+
+// Constants - SCREAMING_SNAKE_CASE
+API_ENDPOINTS.ts
+CONFIG.ts
+
+// Folders - kebab-case
+components/product-card/
+services/ai-orchestrator/
+```
+
+### Variables and Functions
+
+```typescript
+// Variables - camelCase
+const userName = 'John';
+const productList = [];
+
+// Functions - camelCase, verb prefix
+function getUserById(id: string) { ... }
+function calculateTotal(items: Item[]) { ... }
+
+// Boolean - is/has/should prefix
+const isActive = true;
+const hasPermission = false;
+const shouldRender = true;
+
+// Constants - SCREAMING_SNAKE_CASE
+const MAX_ITEMS = 100;
+const API_URL = 'https://api.example.com';
+
+// Components - PascalCase
+function ProductCard() { ... }
+function CheckoutButton() { ... }
+```
+
+### React Components
+
+```typescript
+// Component files
+ProductCard.tsx
+UserProfile.tsx
+
+// Component names match file names
+export function ProductCard() { ... }
+export function UserProfile() { ... }
+```
+
+## Code Organization
+
+### Import Order
+
+```typescript
+// 1. External libraries
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+
+// 2. Internal modules
+import { Button } from '@/components/ui/button';
+import { ProductCard } from '@/components/ProductCard';
+
+// 3. Utilities and helpers
+import { formatPrice } from '@/lib/utils';
+import { API_ENDPOINTS } from '@/lib/constants';
+
+// 4. Types
+import type { Product, User } from '@/types';
+
+// 5. Styles
+import './ProductList.css';
+```
+
+### File Structure
+
+```typescript
+// 1. Type definitions
+interface ComponentProps { ... }
+type Status = ...
+
+// 2. Constants
+const DEFAULT_PAGE_SIZE = 20;
+
+// 3. Helper functions (if small)
+function isValidEmail(email: string): boolean { ... }
+
+// 4. Main component
+export function Component() { ... }
+
+// 5. Sub-components (if needed)
+function SubComponent() { ... }
+```
+
+## ESLint Configuration
+
+The project uses ESLint for code quality:
+
+```bash
+# Run linter
+npm run lint
+
+# Auto-fix issues
+npm run lint -- --fix
+```
+
+### Key Rules
+
+- No unused variables
+- Consistent quote style (single quotes)
+- No console.log in production code (use proper logging)
+- Proper indentation (2 spaces)
+- Semicolons required
+
+## Prettier Configuration
+
+Code formatting standards:
+
+```json
+{
+  "semi": true,
+  "singleQuote": true,
+  "tabWidth": 2,
+  "trailingComma": "es5",
+  "printWidth": 80,
+  "arrowParens": "avoid"
+}
+```
+
+## Comments and Documentation
+
+### When to Comment
+
+```typescript
+// Good - Explain WHY, not WHAT
+// Use debounce to prevent excessive API calls during typing
+const debouncedSearch = useMemo(
+  () => debounce(handleSearch, 300),
+  [handleSearch]
+);
+
+// Avoid - Obvious comments
+// Set count to 0
+const count = 0;
+```
+
+### JSDoc for Functions
+
+```typescript
+/**
+ * Calculates the total price including shipping
+ * @param items - Array of order items
+ * @param shippingCost - Shipping cost in cents
+ * @returns Total price in cents
+ */
+function calculateTotal(
+  items: OrderItem[],
+  shippingCost: number
+): number {
+  // Implementation
+}
+```
+
+### TODO Comments
+
+```typescript
+// TODO: Add pagination support
+// FIXME: Handle edge case when stock is 0
+// HACK: Temporary workaround until API v2
+```
+
+## Error Handling
+
+### Try-Catch Blocks
+
+```typescript
+// Good - Specific error handling
+try {
+  const order = await createOrder(orderData);
+  return order;
+} catch (error) {
+  if (error instanceof ValidationError) {
+    console.error('Validation failed:', error.message);
+    throw error;
+  }
+  console.error('Unexpected error:', error);
+  throw new Error('Order creation failed');
+}
+
+// Avoid - Silent failures
+try {
+  await createOrder(orderData);
+} catch (error) {
+  // Nothing
+}
+```
+
+### Error Boundaries (React)
+
+```typescript
+class ErrorBoundary extends React.Component {
+  componentDidCatch(error, errorInfo) {
+    console.error('Error caught:', error, errorInfo);
+  }
+  
+  render() {
+    if (this.state.hasError) {
+      return <ErrorFallback />;
+    }
+    return this.props.children;
+  }
+}
+```
+
+## Async/Await
+
+```typescript
+// Good - Async/await
+async function fetchProducts(): Promise<Product[]> {
+  const response = await fetch('/api/products');
+  const data = await response.json();
+  return data;
+}
+
+// Avoid - Promise chains
+function fetchProducts() {
+  return fetch('/api/products')
+    .then(res => res.json())
+    .then(data => data);
+}
+```
+
+## CSS/Styling
+
+### TailwindCSS Classes
+
+```typescript
+// Use className, not inline styles
+<div className="flex items-center gap-4 p-4 bg-white rounded-lg shadow">
+  {/* Content */}
+</div>
+
+// Avoid inline styles
+<div style={{ display: 'flex', padding: '16px' }}>
+  {/* Content */}
+</div>
+```
+
+### Conditional Classes
+
+```typescript
+import { cn } from '@/lib/utils';
+
+<Button 
+  className={cn(
+    'px-4 py-2 rounded',
+    isActive && 'bg-primary text-white',
+    isDisabled && 'opacity-50 cursor-not-allowed'
+  )}
+>
+  Click me
+</Button>
+```
+
+## Performance
+
+### Memoization
+
+```typescript
+// Expensive calculations
+const total = useMemo(
+  () => calculateTotal(items),
+  [items]
+);
+
+// Callback functions
+const handleClick = useCallback(
+  () => onItemClick(item.id),
+  [item.id, onItemClick]
+);
+```
+
+### Lazy Loading
+
+```typescript
+import { lazy, Suspense } from 'react';
+
+const ProductDetails = lazy(() => import('./ProductDetails'));
+
+function App() {
+  return (
+    <Suspense fallback={<Loading />}>
+      <ProductDetails />
+    </Suspense>
+  );
+}
+```
+
+## Security
+
+### Input Sanitization
+
+```typescript
+// Never trust user input
+function createUser(email: string, password: string) {
+  // Validate
+  if (!isValidEmail(email)) {
+    throw new Error('Invalid email');
+  }
+  
+  if (password.length < 8) {
+    throw new Error('Password too short');
+  }
+  
+  // Sanitize before DB
+  const sanitizedEmail = email.toLowerCase().trim();
+  // ...
+}
+```
+
+### Environment Variables
+
+```typescript
+// Always use env vars for secrets
+const API_KEY = process.env.VITE_API_KEY;
+
+// Never hardcode
+const API_KEY = 'sk_live_abc123'; // ❌ DON'T DO THIS
+```
+
+## Next Steps
+
+- Review [Contributing Guidelines](/development/contributing)
+- Check [Testing Guide](/development/testing)
+- Explore [Project Structure](/development/project-structure)

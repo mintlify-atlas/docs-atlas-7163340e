@@ -1,0 +1,307 @@
+---
+title: Database Migrations
+description: Managing schema changes and database migrations
+---
+
+## Overview
+
+KAIU Natural Living uses Prisma for database migrations and schema management. This guide covers creating, applying, and managing migrations.
+
+## Migration Strategy
+
+The project currently uses `prisma db push` for development, which:
+- Syncs schema changes directly to the database
+- Does not create migration files
+- Best for rapid prototyping
+
+For production deployments, you should use Prisma Migrate for version-controlled schema changes.
+
+## Development Workflow
+
+### Making Schema Changes
+
+<Steps>
+
+### Edit the Schema
+
+Modify `prisma/schema.prisma`:
+
+```prisma
+model Product {
+  id          String   @id @default(uuid())
+  sku         String   @unique
+  name        String
+  // Add new field:
+  featured    Boolean  @default(false)
+  // ...
+}
+```
+
+### Push to Database
+
+```bash
+npx prisma db push
+```
+
+This command:
+1. Analyzes schema changes
+2. Generates SQL statements
+3. Applies changes to the database
+4. Regenerates Prisma Client
+
+### Verify Changes
+
+```bash
+npx prisma studio
+```
+
+Inspect the updated schema visually.
+
+</Steps>
+
+## Production Workflow (Prisma Migrate)
+
+For production environments, use formal migrations:
+
+### Creating Migrations
+
+<Steps>
+
+### Generate Migration
+
+```bash
+npx prisma migrate dev --name add_featured_to_products
+```
+
+This:
+1. Creates migration files in `prisma/migrations/`
+2. Applies the migration to your dev database
+3. Updates Prisma Client
+
+### Review Migration Files
+
+```bash
+cat prisma/migrations/20260304_add_featured_to_products/migration.sql
+```
+
+Ensure the SQL is correct before deploying.
+
+### Commit Migration
+
+```bash
+git add prisma/migrations
+git commit -m "Add featured field to products"
+```
+
+</Steps>
+
+### Applying Migrations
+
+#### Production Deployment
+
+```bash
+npx prisma migrate deploy
+```
+
+Use this in CI/CD pipelines and production environments. It:
+- Applies pending migrations
+- Does not prompt for confirmation
+- Safe for automation
+
+#### Development Sync
+
+If another developer created migrations:
+
+```bash
+git pull
+npx prisma migrate dev
+```
+
+## Common Migration Tasks
+
+### Add a New Model
+
+```prisma
+model Newsletter {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+}
+```
+
+```bash
+npx prisma db push
+# OR for production:
+npx prisma migrate dev --name add_newsletter_model
+```
+
+### Add a Relation
+
+```prisma
+model Product {
+  // ... existing fields
+  reviews Review[]
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+}
+```
+
+### Rename a Field
+
+```prisma
+model User {
+  id       String @id @default(uuid())
+  fullName String // renamed from 'name'
+}
+```
+
+```bash
+npx prisma db push
+```
+
+Prisma will detect the rename if the type matches, otherwise it will drop and recreate.
+
+### Add an Index
+
+```prisma
+model Order {
+  id         String @id @default(uuid())
+  customerEmail String
+  
+  @@index([customerEmail])
+}
+```
+
+### Make a Field Optional/Required
+
+```prisma
+model Product {
+  id          String  @id @default(uuid())
+  description String? // Made optional
+  name        String  // Required
+}
+```
+
+## PostgreSQL Specific Features
+
+### Enable Extensions
+
+For pgvector (AI embeddings):
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+Run this manually before pushing schema with vector fields.
+
+### Using Unsupported Types
+
+For PostgreSQL-specific types not directly supported by Prisma:
+
+```prisma
+model KnowledgeBase {
+  id        String @id @default(uuid())
+  embedding Unsupported("vector(1536)")
+}
+```
+
+## Seeding After Migrations
+
+After schema changes, reseed the database:
+
+```bash
+npm run seed
+```
+
+See [Database Seeding](/development/seeding) for details.
+
+## Rollback Strategies
+
+### Development Rollback
+
+Reset the entire database:
+
+```bash
+npx prisma migrate reset
+```
+
+Warning: This deletes all data!
+
+### Production Rollback
+
+Create a new migration that reverses changes:
+
+```bash
+npx prisma migrate dev --name revert_featured_field
+```
+
+Manually write SQL to undo the previous migration.
+
+## Migration Best Practices
+
+1. **Test Locally First** - Always test migrations on development database
+2. **Backup Production** - Create database backup before applying migrations
+3. **Small Changes** - Keep migrations focused and atomic
+4. **Descriptive Names** - Use clear migration names: `add_user_roles`, `create_reviews_table`
+5. **Review Generated SQL** - Check migration files for correctness
+6. **Version Control** - Commit migration files with related code changes
+
+## Troubleshooting
+
+### Migration Out of Sync
+
+If migrations are out of sync:
+
+```bash
+npx prisma migrate resolve --applied <migration_name>
+# OR
+npx prisma migrate resolve --rolled-back <migration_name>
+```
+
+### Schema Drift
+
+If database schema differs from Prisma schema:
+
+```bash
+npx prisma db pull
+```
+
+This introspects the database and updates your schema file.
+
+### Failed Migration
+
+```bash
+npx prisma migrate resolve --rolled-back <failed_migration>
+npx prisma migrate deploy
+```
+
+## Environment-Specific Migrations
+
+### Development
+
+```bash
+npx prisma db push
+```
+
+Fast iteration without migration history.
+
+### Staging/Production
+
+```bash
+npx prisma migrate deploy
+```
+
+Controlled migration application from version control.
+
+## Next Steps
+
+- Review [Prisma Schema Documentation](/development/prisma-schema)
+- Learn about [Database Seeding](/development/seeding)
+- Explore [API Reference](/api/introduction)

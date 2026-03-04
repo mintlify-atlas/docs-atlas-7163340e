@@ -1,0 +1,81 @@
+---
+title: 'API Introduction'
+description: 'KAIU Natural Living REST API - E-commerce and logistics integration'
+---
+
+## Overview
+
+The KAIU Natural Living API provides endpoints for managing e-commerce operations, including product catalog access, order creation, shipping quotes, and order tracking. The API integrates with third-party logistics providers (Venndelo) and payment processors (Wompi) to deliver a complete e-commerce solution.
+
+## Base URL
+
+```
+http://localhost:3001/api
+```
+
+## API Architecture
+
+The API is built with:
+- **Express.js** - Node.js web framework
+- **Prisma** - Database ORM for PostgreSQL
+- **Zod** - Runtime type validation
+- **Socket.IO** - Real-time communication for admin dashboard
+
+## Response Format
+
+All API responses are returned in JSON format.
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "data": { /* response data */ }
+}
+```
+
+### Error Response
+
+```json
+{
+  "error": "Error message",
+  "details": { /* optional error details */ }
+}
+```
+
+## HTTP Status Codes
+
+The API uses standard HTTP status codes:
+
+| Code | Description |
+|------|-------------|
+| 200 | OK - Request successful |
+| 201 | Created - Resource created successfully |
+| 400 | Bad Request - Invalid input data |
+| 401 | Unauthorized - Authentication failed |
+| 404 | Not Found - Resource not found |
+| 405 | Method Not Allowed - HTTP method not supported |
+| 409 | Conflict - Resource conflict (e.g., insufficient stock) |
+| 500 | Internal Server Error - Server error |
+| 502 | Bad Gateway - External service error |
+
+## CORS Policy
+
+The API supports CORS with the following configuration:
+- **Access-Control-Allow-Origin**: `*` (all origins)
+- **Access-Control-Allow-Methods**: `GET, POST, PUT, PATCH, DELETE, OPTIONS`
+- **Access-Control-Allow-Credentials**: `true`
+
+## Rate Limiting
+
+Currently, there are no rate limits enforced. This may change in production environments.
+
+## Environments
+
+<Tip>
+The API uses environment variables from `.env.local` for configuration, including API keys for Venndelo logistics and Wompi payments.
+</Tip>
+
+## Support
+
+For API support or questions, contact the KAIU development team.

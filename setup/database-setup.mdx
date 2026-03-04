@@ -1,0 +1,511 @@
+---
+title: Database Setup
+description: Configure PostgreSQL with pgvector extension for KAIU Natural Living
+---
+
+## Overview
+
+KAIU Natural Living uses **PostgreSQL** as its primary database with the **pgvector** extension for AI-powered semantic search (RAG - Retrieval Augmented Generation).
+
+## Architecture
+
+- **ORM**: Prisma
+- **Database**: PostgreSQL 14+
+- **Extension**: pgvector for embedding storage
+- **Models**: Users, Products, Orders, Knowledge Base, WhatsApp Sessions
+
+## Prerequisites
+
+<Warning>
+  PostgreSQL 14 or higher is required for optimal pgvector performance.
+</Warning>
+
+- PostgreSQL 14+
+- Superuser access (for enabling extensions)
+- At least 2GB available disk space
+
+## Installation
+
+<Tabs>
+  <Tab title="Ubuntu/Debian">
+    ```bash
+    # Install PostgreSQL
+    sudo apt update
+    sudo apt install postgresql postgresql-contrib
+
+    # Start PostgreSQL service
+    sudo systemctl start postgresql
+    sudo systemctl enable postgresql
+
+    # Verify installation
+    psql --version
+    ```
+  </Tab>
+  <Tab title="macOS">
+    ```bash
+    # Using Homebrew
+    brew install postgresql@14
+
+    # Start PostgreSQL service
+    brew services start postgresql@14
+
+    # Verify installation
+    psql --version
+    ```
+  </Tab>
+  <Tab title="Docker">
+    ```bash
+    # Pull PostgreSQL image with pgvector
+    docker pull ankane/pgvector
+
+    # Run container
+    docker run -d \
+      --name kaiu-postgres \
+      -e POSTGRES_PASSWORD=yourpassword \
+      -e POSTGRES_DB=kaiu_db \
+      -p 5432:5432 \
+      ankane/pgvector
+    ```
+  </Tab>
+  <Tab title="Supabase">
+    <Steps>
+      <Step title="Create Project">
+        1. Go to [Supabase Dashboard](https://app.supabase.com)
+        2. Click "New Project"
+        3. Choose a name and password
+        4. Select your region
+      </Step>
+      <Step title="Get Connection String">
+        Navigate to **Settings > Database** and copy the connection string.
+
+        Format:
+        ```
+        postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres
+        ```
+      </Step>
+      <Step title="Enable pgvector">
+        Supabase includes pgvector by default. Verify it's enabled:
+
+        ```sql
+        CREATE EXTENSION IF NOT EXISTS vector;
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Database Setup Steps
+
+<Steps>
+  <Step title="Create Database">
+    Create a new PostgreSQL database for KAIU:
+
+    ```bash
+    # Connect to PostgreSQL as superuser
+    sudo -u postgres psql
+    ```
+
+    ```sql
+    -- Create database
+    CREATE DATABASE kaiu_db;
+
+    -- Create user (optional, for security)
+    CREATE USER kaiu_user WITH PASSWORD 'secure_password';
+
+    -- Grant privileges
+    GRANT ALL PRIVILEGES ON DATABASE kaiu_db TO kaiu_user;
+
+    -- Exit
+    \q
+    ```
+  </Step>
+
+  <Step title="Enable pgvector Extension">
+    <Warning>
+      The pgvector extension must be enabled before running Prisma migrations.
+    </Warning>
+
+    **Option 1: Using SQL**
+    ```bash
+    # Connect to your database
+    psql -U kaiu_user -d kaiu_db
+    ```
+
+    ```sql
+    -- Enable pgvector extension
+    CREATE EXTENSION IF NOT EXISTS vector;
+
+    -- Verify installation
+    SELECT * FROM pg_extension WHERE extname = 'vector';
+    ```
+
+    **Option 2: Install pgvector manually (if not available)**
+    ```bash
+    # Clone pgvector repository
+    git clone --branch v0.5.0 https://github.com/pgvector/pgvector.git
+    cd pgvector
+
+    # Build and install
+    make
+    sudo make install
+
+    # Enable in your database
+    psql -U kaiu_user -d kaiu_db -c "CREATE EXTENSION vector;"
+    ```
+  </Step>
+
+  <Step title="Configure Environment Variable">
+    Update your `.env.local` with the database connection string:
+
+    ```bash
+    DATABASE_URL="postgresql://kaiu_user:secure_password@localhost:5432/kaiu_db"
+    ```
+
+    **Connection string format:**
+    ```
+    postgresql://[USER]:[PASSWORD]@[HOST]:[PORT]/[DATABASE]?schema=public
+    ```
+  </Step>
+
+  <Step title="Initialize Prisma Schema">
+    Push the Prisma schema to your database:
+
+    ```bash
+    # Generate Prisma Client
+    npx prisma generate
+
+    # Push schema to database (creates tables)
+    npx prisma db push
+    ```
+
+    You should see output like:
+    ```
+    Environment variables loaded from .env.local
+    Prisma schema loaded from prisma/schema.prisma
+    Datasource "db": PostgreSQL database "kaiu_db"
+
+    🚀  Your database is now in sync with your Prisma schema.
+    ```
+  </Step>
+
+  <Step title="Seed Initial Data">
+    Populate the database with initial data:
+
+    ```bash
+    npm run seed
+    ```
+
+    This will create:
+    - Admin users with different roles (ADMIN, WAREHOUSE, SUPPORT)
+    - Sample products with inventory
+    - Knowledge base entries for AI responses
+  </Step>
+</Steps>
+
+## Database Schema Overview
+
+The Prisma schema includes the following models:
+
+### User Management
+
+```prisma
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String   // Bcrypt hash
+  name      String?
+  role      Role     @default(CUSTOMER)
+  bsuid     String?  @unique // WhatsApp Business-Scoped User ID
+  
+  orders    Order[]
+  addresses Address[]
+  whatsappSession WhatsAppSession?
+}
+
+enum Role {
+  CUSTOMER   // End customer
+  ADMIN      // Full access
+  WAREHOUSE  // Logistics and inventory
+  SUPPORT    // Chat support and knowledge base
+}
+```
+
+### Product & Inventory
+
+```prisma
+model Product {
+  id            String   @id @default(uuid())
+  sku           String   @unique
+  name          String
+  slug          String   @unique
+  description   String?  @db.Text
+  variantName   String?  // e.g., "10ml Dropper"
+  price         Int      // In cents (COP)
+  stock         Int      @default(0)
+  stockReserved Int      @default(0)
+  isActive      Boolean  @default(true)
+  images        String[] // Array of URLs
+  
+  // Logistics dimensions
+  weight        Float    @default(0.2)  // kg
+  width         Float    @default(10)   // cm
+  height        Float    @default(10)   // cm
+  length        Float    @default(10)   // cm
+}
+```
+
+### Orders & Logistics
+
+```prisma
+model Order {
+  id              String        @id @default(uuid())
+  readableId      Int           @default(autoincrement())
+  externalId      String?       @unique // Venndelo or Wompi ID
+  status          OrderStatus   @default(PENDING)
+  paymentMethod   PaymentMethod @default(COD)
+  
+  subtotal        Int
+  shippingCost    Int
+  total           Int
+  
+  // Customer info
+  customerName    String
+  customerEmail   String
+  customerPhone   String
+  customerId      String?  // ID number for logistics
+  
+  // Addresses (stored as JSON snapshots)
+  shippingAddress Json
+  billingAddress  Json?
+  
+  // Logistics
+  carrier         String?
+  trackingNumber  String?
+  trackingUrl     String?
+  
+  items           OrderItem[]
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  READY_TO_SHIP
+  PICKUP_REQUESTED
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  RETURNED
+}
+```
+
+### Knowledge Base (RAG)
+
+<Info>
+  The `embedding` field uses PostgreSQL's `vector` type for semantic search.
+</Info>
+
+```prisma
+model KnowledgeBase {
+  id        String   @id @default(uuid())
+  content   String   @db.Text
+  metadata  Json?    // { source: "product", id: "...", title: "..." }
+  
+  // pgvector support (1536 dimensions for OpenAI/Anthropic embeddings)
+  embedding Unsupported("vector(1536)")?
+  
+  createdAt DateTime @default(now())
+}
+```
+
+### WhatsApp Sessions
+
+```prisma
+model WhatsAppSession {
+  id              String   @id @default(uuid())
+  phoneNumber     String   @unique
+  isBotActive     Boolean  @default(true)
+  sessionContext  Json?    // Conversation history
+  handoverTrigger String?  // Reason for human escalation
+  expiresAt       DateTime // Meta's 24h/72h window
+  
+  userId          String?  @unique
+  user            User?    @relation(fields: [userId], references: [id])
+}
+```
+
+## Prisma Commands Reference
+
+```bash
+# Generate Prisma Client (after schema changes)
+npx prisma generate
+
+# Push schema changes to database (development)
+npx prisma db push
+
+# Create migration (production)
+npx prisma migrate dev --name description
+
+# Apply migrations (production)
+npx prisma migrate deploy
+
+# Open Prisma Studio (database GUI)
+npx prisma studio
+
+# Reset database (DANGER: deletes all data)
+npx prisma db push --force-reset
+```
+
+## Verify Setup
+
+<Steps>
+  <Step title="Check Database Connection">
+    ```bash
+    npx prisma db pull
+    ```
+
+    Should output:
+    ```
+    Prisma schema loaded from prisma/schema.prisma
+    Datasource "db": PostgreSQL database "kaiu_db"
+    Introspecting based on datasource...
+    ✔ Introspected 8 models
+    ```
+  </Step>
+
+  <Step title="Verify pgvector">
+    ```bash
+    psql -U kaiu_user -d kaiu_db -c "SELECT * FROM pg_extension WHERE extname = 'vector';"
+    ```
+
+    Should show:
+    ```
+     oid  | extname | extowner | extnamespace | ...
+    ------+---------+----------+--------------+-----
+     16XXX| vector  |       10 |         2200 | ...
+    ```
+  </Step>
+
+  <Step title="Test Query">
+    ```bash
+    psql -U kaiu_user -d kaiu_db -c "SELECT COUNT(*) FROM products;"
+    ```
+
+    Should return the number of seeded products.
+  </Step>
+
+  <Step title="Open Prisma Studio">
+    ```bash
+    npx prisma studio
+    ```
+
+    Opens a browser at `http://localhost:5555` where you can view and edit data.
+  </Step>
+</Steps>
+
+## Production Considerations
+
+<CardGroup cols={2}>
+  <Card title="Use Migrations" icon="code-branch">
+    In production, use `prisma migrate deploy` instead of `db push` to maintain migration history.
+  </Card>
+  <Card title="Connection Pooling" icon="layer-group">
+    Use PgBouncer or Supabase's built-in pooling for better performance under load.
+  </Card>
+  <Card title="Backups" icon="database">
+    Schedule regular backups using `pg_dump` or your provider's backup service.
+  </Card>
+  <Card title="Monitoring" icon="chart-line">
+    Monitor query performance and enable slow query logs.
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="pgvector Extension Not Found">
+    If you get `ERROR: extension "vector" is not available`:
+
+    1. Check PostgreSQL version (must be 11+):
+       ```bash
+       psql --version
+       ```
+
+    2. Install pgvector manually:
+       ```bash
+       git clone https://github.com/pgvector/pgvector.git
+       cd pgvector
+       make
+       sudo make install
+       ```
+
+    3. Restart PostgreSQL:
+       ```bash
+       sudo systemctl restart postgresql
+       ```
+  </Accordion>
+
+  <Accordion title="Connection Refused">
+    If you get `Connection refused` errors:
+
+    ```bash
+    # Check PostgreSQL is running
+    sudo systemctl status postgresql
+
+    # Check PostgreSQL is listening on port 5432
+    sudo netstat -plunt | grep 5432
+
+    # Verify connection string
+    echo $DATABASE_URL
+    ```
+
+    Update `postgresql.conf` to allow connections:
+    ```conf
+    listen_addresses = '*'
+    ```
+
+    Update `pg_hba.conf` to allow authentication:
+    ```conf
+    host    all    all    0.0.0.0/0    md5
+    ```
+  </Accordion>
+
+  <Accordion title="Prisma Client Out of Sync">
+    If you get errors about Prisma Client being out of sync:
+
+    ```bash
+    # Regenerate Prisma Client
+    npx prisma generate
+
+    # Clear node_modules and reinstall
+    rm -rf node_modules
+    npm install
+    ```
+  </Accordion>
+
+  <Accordion title="Migration Conflicts">
+    If migrations fail in production:
+
+    ```bash
+    # Check migration status
+    npx prisma migrate status
+
+    # Resolve failed migration
+    npx prisma migrate resolve --applied "migration_name"
+
+    # Or mark as rolled back
+    npx prisma migrate resolve --rolled-back "migration_name"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Redis Setup" icon="bolt" href="/setup/redis-setup">
+    Configure Redis for queue management
+  </Card>
+  <Card title="Environment Variables" icon="gear" href="/setup/environment-variables">
+    Complete your configuration
+  </Card>
+</CardGroup>

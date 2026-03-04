@@ -1,0 +1,340 @@
+---
+title: Environment Variables
+description: Complete reference for all environment variables used in KAIU Natural Living
+---
+
+## Overview
+
+KAIU Natural Living uses environment variables for configuration management. Variables are stored in:
+
+- `.env.local` - Main application configuration
+- `prisma/.env` - Database-specific configuration (can also use `.env.local`)
+
+<Warning>
+  Never commit `.env.local` or any file containing secrets to version control. Add these files to `.gitignore`.
+</Warning>
+
+## Required Variables
+
+These variables are essential for the application to function:
+
+### Database
+
+```bash
+# PostgreSQL connection string with pgvector support
+DATABASE_URL="postgresql://username:password@host:port/database?schema=public"
+```
+
+**Example:**
+```bash
+DATABASE_URL="postgresql://postgres:mypassword@localhost:5432/kaiu_db"
+```
+
+For Supabase:
+```bash
+DATABASE_URL="postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres"
+```
+
+### Redis Configuration
+
+<Tabs>
+  <Tab title="Using REDIS_URL">
+    Use a single connection string (recommended for production):
+
+    ```bash
+    # Complete Redis connection URL
+    REDIS_URL="redis://default:password@host:port"
+    ```
+
+    **Examples:**
+    ```bash
+    # Upstash Redis
+    REDIS_URL="rediss://default:xxxxx@example.upstash.io:6379"
+
+    # Local Redis with password
+    REDIS_URL="redis://default:mypassword@localhost:6379"
+    ```
+  </Tab>
+  <Tab title="Using Individual Parameters">
+    Use separate host, port, and password (common for local development):
+
+    ```bash
+    REDIS_HOST="localhost"
+    REDIS_PORT="6379"
+    REDIS_PASSWORD=""  # Leave empty if no password
+    ```
+  </Tab>
+</Tabs>
+
+<Info>
+  If `REDIS_URL` is provided, it takes precedence over individual `REDIS_HOST`, `REDIS_PORT`, and `REDIS_PASSWORD` variables.
+</Info>
+
+### AI Configuration
+
+```bash
+# Anthropic Claude API Key for AI chat responses
+ANTHROPIC_API_KEY="sk-ant-api03-xxxxx"
+```
+
+<Card title="Get your Anthropic API Key" icon="key" href="https://console.anthropic.com/">
+  Sign up at Anthropic Console to obtain your API key. The system uses Claude 3 Haiku for fast, cost-effective responses.
+</Card>
+
+### WhatsApp Cloud API
+
+```bash
+# WhatsApp Business Phone Number ID
+WHATSAPP_PHONE_ID="123456789012345"
+
+# WhatsApp Access Token from Meta Business
+WHATSAPP_ACCESS_TOKEN="EAAG..."
+
+# Webhook verification token (you create this)
+WHATSAPP_VERIFY_TOKEN="your-custom-verify-token-12345"
+
+# App Secret from Meta App Dashboard
+WHATSAPP_APP_SECRET="abcdef1234567890"
+```
+
+<Warning>
+  The `WHATSAPP_VERIFY_TOKEN` is a custom string you define. Make sure to use the same value when configuring webhooks in the Meta App Dashboard.
+</Warning>
+
+See [WhatsApp Integration](/setup/whatsapp-integration) for detailed setup instructions.
+
+### Authentication
+
+```bash
+# JWT Secret for token signing (use a strong random string)
+JWT_SECRET="your-super-secret-jwt-key-min-32-chars"
+```
+
+**Generate a secure secret:**
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+## Optional Variables
+
+### Application Settings
+
+```bash
+# Node environment (development, production, test)
+NODE_ENV="development"
+
+# Base URL for the application (used for image links in WhatsApp)
+BASE_URL="http://localhost:3001"
+```
+
+### Payment Gateway (Wompi)
+
+```bash
+# Wompi Public Key (for frontend checkout)
+WOMPI_PUBLIC_KEY="pub_test_xxxxx"
+
+# Wompi Public Key for Vite (same as above, for build process)
+VITE_WOMPI_PUB_KEY="pub_test_xxxxx"
+
+# Wompi Integrity Secret (for signature generation)
+WOMPI_INTEGRITY_SECRET="prod_integrity_xxxxx"
+```
+
+<Info>
+  Use test keys (`pub_test_*` and `test_integrity_*`) for development. Switch to production keys when deploying.
+</Info>
+
+### Logistics Provider (Venndelo)
+
+```bash
+# Venndelo API Key
+VENNDELO_API_KEY="your-venndelo-api-key"
+
+# Warehouse/Pickup Location Information
+VENNDELO_PICKUP_NAME="KAIU Natural Living"
+VENNDELO_PICKUP_PHONE="+573001234567"
+VENNDELO_PICKUP_ADDRESS="Calle 123 #45-67"
+VENNDELO_PICKUP_CITY_CODE="11001000"  # Bogotá
+VENNDELO_PICKUP_SUBDIVISION_CODE="11"  # Bogotá D.C.
+VENNDELO_PICKUP_COUNTRY="CO"  # Colombia
+```
+
+<Accordion title="How to find city codes">
+  City codes in Colombia follow the DIVIPOLA standard:
+  - **Bogotá**: `11001000` (subdivision: `11`)
+  - **Medellín**: `05001000` (subdivision: `05`)
+  - **Cali**: `76001000` (subdivision: `76`)
+  - **Barranquilla**: `08001000` (subdivision: `08`)
+  
+  Find your city code at [DANE DIVIPOLA](https://www.dane.gov.co/index.php/sistema-estadistico-nacional-sen/nomenclaturas-y-clasificaciones/codigos-de-divipola).
+</Accordion>
+
+### Email Service (Resend)
+
+```bash
+# Resend API Key for transactional emails
+RESEND_API_KEY="re_xxxxx"
+```
+
+### Supabase (Alternative to self-hosted Postgres)
+
+```bash
+# Supabase Project URL
+SUPABASE_URL="https://xxxxx.supabase.co"
+
+# Supabase Service Role Key (for admin operations)
+SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+<Warning>
+  The `SUPABASE_SERVICE_ROLE_KEY` has admin privileges. Keep it secret and only use it server-side.
+</Warning>
+
+## Environment File Examples
+
+### Local Development (.env.local)
+
+```bash
+# Database
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/kaiu_dev"
+
+# Redis
+REDIS_HOST="localhost"
+REDIS_PORT="6379"
+
+# AI
+ANTHROPIC_API_KEY="sk-ant-api03-xxxxx"
+
+# WhatsApp (using test account)
+WHATSAPP_PHONE_ID="123456789"
+WHATSAPP_ACCESS_TOKEN="EAAG..."
+WHATSAPP_VERIFY_TOKEN="my-verify-token-12345"
+WHATSAPP_APP_SECRET="your-app-secret"
+
+# Auth
+JWT_SECRET="dev-secret-key-please-change-in-production"
+
+# App
+NODE_ENV="development"
+BASE_URL="http://localhost:3001"
+
+# Payment (Test Mode)
+WOMPI_PUBLIC_KEY="pub_test_xxxxx"
+VITE_WOMPI_PUB_KEY="pub_test_xxxxx"
+WOMPI_INTEGRITY_SECRET="test_integrity_xxxxx"
+```
+
+### Production (Supabase + Upstash)
+
+```bash
+# Database (Supabase)
+DATABASE_URL="postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres"
+
+# Redis (Upstash)
+REDIS_URL="rediss://default:[PASSWORD]@example.upstash.io:6379"
+
+# AI
+ANTHROPIC_API_KEY="sk-ant-api03-xxxxx"
+
+# WhatsApp (Production)
+WHATSAPP_PHONE_ID="123456789012345"
+WHATSAPP_ACCESS_TOKEN="EAAG..."
+WHATSAPP_VERIFY_TOKEN="secure-random-token-67890"
+WHATSAPP_APP_SECRET="production-app-secret"
+
+# Auth
+JWT_SECRET="production-secret-min-32-chars-random-string"
+
+# App
+NODE_ENV="production"
+BASE_URL="https://api.kaiu.com"
+
+# Payment (Production)
+WOMPI_PUBLIC_KEY="pub_prod_xxxxx"
+VITE_WOMPI_PUB_KEY="pub_prod_xxxxx"
+WOMPI_INTEGRITY_SECRET="prod_integrity_xxxxx"
+
+# Logistics
+VENNDELO_API_KEY="your-production-api-key"
+VENNDELO_PICKUP_NAME="KAIU Natural Living"
+VENNDELO_PICKUP_PHONE="+573001234567"
+VENNDELO_PICKUP_ADDRESS="Calle 123 #45-67"
+VENNDELO_PICKUP_CITY_CODE="11001000"
+VENNDELO_PICKUP_SUBDIVISION_CODE="11"
+VENNDELO_PICKUP_COUNTRY="CO"
+
+# Supabase
+SUPABASE_URL="https://xxxxx.supabase.co"
+SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+## Validation
+
+After configuring environment variables, validate your setup:
+
+```bash
+# Test database connection
+npx prisma db pull
+
+# Test Redis connection
+node -e "const Redis = require('ioredis'); const redis = new Redis(process.env.REDIS_URL || { host: process.env.REDIS_HOST }); redis.ping().then(() => console.log('Redis OK')).catch(console.error);"
+
+# Test API startup
+npm run api:dev
+```
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Strong Secrets" icon="shield">
+    Generate cryptographically secure random strings for `JWT_SECRET` and `WHATSAPP_VERIFY_TOKEN`.
+  </Card>
+  <Card title="Separate Environments" icon="layer-group">
+    Use different keys and secrets for development, staging, and production.
+  </Card>
+  <Card title="Rotate Keys" icon="rotate">
+    Regularly rotate API keys and secrets, especially after team member changes.
+  </Card>
+  <Card title="Monitor Access" icon="eye">
+    Enable logging for environment variable access and API key usage.
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Environment Variables Not Loading">
+    Ensure `.env.local` is in the project root and not nested in subdirectories.
+
+    ```bash
+    # Verify file location
+    ls -la .env.local
+
+    # Check if dotenv is configured in server.mjs
+    grep -n "dotenv" server.mjs
+    ```
+
+    The server loads environment variables from:
+    ```javascript
+    dotenv.config({ path: path.resolve(__dirname, '.env.local') });
+    ```
+  </Accordion>
+
+  <Accordion title="Database Connection Refused">
+    Verify `DATABASE_URL` format and PostgreSQL service status:
+
+    ```bash
+    # Test connection manually
+    psql "postgresql://user:pass@host:port/db"
+
+    # Check PostgreSQL is running
+    sudo systemctl status postgresql
+    ```
+  </Accordion>
+
+  <Accordion title="WhatsApp Webhook Verification Fails">
+    Ensure `WHATSAPP_VERIFY_TOKEN` in your `.env.local` matches exactly what you entered in Meta App Dashboard.
+
+    Check webhook handler at `backend/whatsapp/webhook.js:52-68`.
+  </Accordion>
+</AccordionGroup>

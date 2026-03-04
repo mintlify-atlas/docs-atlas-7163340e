@@ -1,0 +1,384 @@
+---
+title: Testing Guide
+description: Writing and running tests for KAIU Natural Living
+---
+
+## Overview
+
+KAIU Natural Living uses Vitest as the testing framework with React Testing Library for component tests. Tests run in a jsdom environment to simulate browser behavior.
+
+## Test Configuration
+
+The test setup is defined in `vitest.config.ts`:
+
+```typescript
+import { defineConfig } from "vitest/config";
+import react from "@vitejs/plugin-react-swc";
+import path from "path";
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: ["./src/test/setup.ts"],
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+  },
+  resolve: {
+    alias: { "@": path.resolve(__dirname, "./src") },
+  },
+});
+```
+
+**Key Configuration:**
+- **Environment**: jsdom (browser simulation)
+- **Globals**: Enabled (no need to import `describe`, `test`, `expect`)
+- **Setup Files**: `src/test/setup.ts` runs before all tests
+- **File Pattern**: `*.test.ts`, `*.test.tsx`, `*.spec.ts`, `*.spec.tsx`
+- **Path Alias**: `@` resolves to `./src`
+
+## Running Tests
+
+### Run All Tests
+
+```bash
+npm run test
+```
+
+Runs all tests once and exits.
+
+### Watch Mode
+
+```bash
+npm run test:watch
+```
+
+Runs tests in watch mode. Tests re-run when files change.
+
+### Run Specific Tests
+
+```bash
+npx vitest run src/components/ProductCard.test.tsx
+```
+
+### Run Tests Matching Pattern
+
+```bash
+npx vitest run --grep "checkout"
+```
+
+### Coverage Report
+
+```bash
+npx vitest run --coverage
+```
+
+## Test Structure
+
+### Component Tests
+
+Place test files next to components:
+
+```
+src/components/
+├── ProductCard.tsx
+├── ProductCard.test.tsx
+├── Cart.tsx
+└── Cart.test.tsx
+```
+
+**Example Component Test:**
+
+```typescript
+import { render, screen } from '@testing-library/react';
+import { ProductCard } from './ProductCard';
+
+test('renders product information', () => {
+  const product = {
+    id: '1',
+    name: 'Aceite de Lavanda',
+    price: 45000,
+    image: 'https://example.com/lavanda.jpg'
+  };
+
+  render(<ProductCard product={product} />);
+
+  expect(screen.getByText('Aceite de Lavanda')).toBeInTheDocument();
+  expect(screen.getByText('$45,000')).toBeInTheDocument();
+});
+```
+
+### API/Backend Tests
+
+```typescript
+import { PrismaClient } from '@prisma/client';
+import { createOrder } from '@/backend/create-order';
+
+const prisma = new PrismaClient();
+
+test('creates order with items', async () => {
+  const orderData = {
+    customerName: 'Juan Pérez',
+    customerEmail: 'juan@example.com',
+    items: [{ productId: '1', quantity: 2 }]
+  };
+
+  const order = await createOrder(orderData);
+
+  expect(order).toBeDefined();
+  expect(order.customerName).toBe('Juan Pérez');
+  expect(order.items).toHaveLength(1);
+});
+```
+
+### Utility Function Tests
+
+```typescript
+import { formatPrice } from '@/lib/utils';
+
+test('formats price correctly', () => {
+  expect(formatPrice(45000)).toBe('$45,000');
+  expect(formatPrice(1000)).toBe('$1,000');
+  expect(formatPrice(500)).toBe('$500');
+});
+```
+
+## Testing Library Setup
+
+The `src/test/setup.ts` file configures the test environment:
+
+```typescript
+import '@testing-library/jest-dom';
+
+// Add custom matchers
+import { expect } from 'vitest';
+
+// Global test utilities
+global.console = {
+  ...console,
+  error: vi.fn(), // Suppress error logs in tests
+  warn: vi.fn(),
+};
+```
+
+## Common Testing Patterns
+
+### Testing User Interactions
+
+```typescript
+import { render, screen, fireEvent } from '@testing-library/react';
+import { AddToCartButton } from './AddToCartButton';
+
+test('adds product to cart when clicked', () => {
+  const onAddToCart = vi.fn();
+  
+  render(<AddToCartButton onAddToCart={onAddToCart} />);
+  
+  const button = screen.getByRole('button', { name: /agregar/i });
+  fireEvent.click(button);
+  
+  expect(onAddToCart).toHaveBeenCalledTimes(1);
+});
+```
+
+### Testing Async Components
+
+```typescript
+import { render, screen, waitFor } from '@testing-library/react';
+import { ProductList } from './ProductList';
+
+test('loads and displays products', async () => {
+  render(<ProductList />);
+  
+  // Loading state
+  expect(screen.getByText(/cargando/i)).toBeInTheDocument();
+  
+  // Wait for products to load
+  await waitFor(() => {
+    expect(screen.getByText('Aceite de Lavanda')).toBeInTheDocument();
+  });
+});
+```
+
+### Mocking API Calls
+
+```typescript
+import { vi } from 'vitest';
+import axios from 'axios';
+
+vi.mock('axios');
+
+test('fetches products from API', async () => {
+  const mockProducts = [
+    { id: '1', name: 'Lavanda', price: 45000 }
+  ];
+  
+  axios.get.mockResolvedValue({ data: mockProducts });
+  
+  const products = await fetchProducts();
+  
+  expect(axios.get).toHaveBeenCalledWith('/api/products');
+  expect(products).toEqual(mockProducts);
+});
+```
+
+### Testing Context Providers
+
+```typescript
+import { render, screen } from '@testing-library/react';
+import { CartProvider } from '@/context/CartContext';
+import { CartDisplay } from './CartDisplay';
+
+test('displays cart count', () => {
+  render(
+    <CartProvider>
+      <CartDisplay />
+    </CartProvider>
+  );
+  
+  expect(screen.getByText(/0 items/i)).toBeInTheDocument();
+});
+```
+
+### Testing Forms
+
+```typescript
+import { render, screen, fireEvent } from '@testing-library/react';
+import { CheckoutForm } from './CheckoutForm';
+
+test('validates required fields', async () => {
+  render(<CheckoutForm />);
+  
+  const submitButton = screen.getByRole('button', { name: /pagar/i });
+  fireEvent.click(submitButton);
+  
+  expect(await screen.findByText(/nombre es requerido/i)).toBeInTheDocument();
+  expect(await screen.findByText(/email es requerido/i)).toBeInTheDocument();
+});
+```
+
+## Database Testing
+
+### Setup Test Database
+
+Use a separate test database:
+
+```bash
+# .env.test
+DATABASE_URL="postgresql://user:pass@localhost:5432/kaiu_test"
+```
+
+### Seed Before Tests
+
+```typescript
+import { beforeAll, afterAll } from 'vitest';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+beforeAll(async () => {
+  await prisma.product.create({
+    data: {
+      sku: 'TEST-001',
+      name: 'Test Product',
+      price: 10000,
+      stock: 100
+    }
+  });
+});
+
+afterAll(async () => {
+  await prisma.product.deleteMany();
+  await prisma.$disconnect();
+});
+```
+
+## Snapshot Testing
+
+```typescript
+import { render } from '@testing-library/react';
+import { ProductCard } from './ProductCard';
+
+test('matches snapshot', () => {
+  const product = {
+    id: '1',
+    name: 'Lavanda',
+    price: 45000
+  };
+  
+  const { container } = render(<ProductCard product={product} />);
+  expect(container).toMatchSnapshot();
+});
+```
+
+## Testing Best Practices
+
+1. **Test User Behavior** - Focus on how users interact with the app
+2. **Avoid Implementation Details** - Don't test internal state or props
+3. **Use Semantic Queries** - Prefer `getByRole`, `getByLabelText` over `getByTestId`
+4. **Keep Tests Independent** - Each test should run in isolation
+5. **Mock External Dependencies** - API calls, third-party libraries
+6. **Clean Up** - Clear database, reset mocks after each test
+
+## Coverage Goals
+
+Aim for:
+- **Components**: 80%+ coverage
+- **Business Logic**: 90%+ coverage
+- **Utilities**: 100% coverage
+
+## Continuous Integration
+
+Add to CI pipeline:
+
+```yaml
+# .github/workflows/test.yml
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+      - run: npm install
+      - run: npm run test
+```
+
+## Troubleshooting
+
+### "Cannot find module"
+
+Check path aliases in `vitest.config.ts` match `tsconfig.json`.
+
+### "ReferenceError: window is not defined"
+
+Ensure test environment is set to `jsdom`:
+
+```typescript
+export default defineConfig({
+  test: {
+    environment: "jsdom",
+  },
+});
+```
+
+### Tests Timeout
+
+Increase timeout for slow tests:
+
+```typescript
+test('slow operation', async () => {
+  // test code
+}, { timeout: 10000 }); // 10 seconds
+```
+
+## Next Steps
+
+- Review [Debugging Tips](/development/debugging)
+- Learn about [Code Style Guide](/development/code-style)
+- Explore [Contributing Guidelines](/development/contributing)

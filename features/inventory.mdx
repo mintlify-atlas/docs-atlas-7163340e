@@ -1,0 +1,764 @@
+---
+title: Inventory Management
+description: Real-time product catalog and stock control system with admin interface
+---
+
+## Overview
+
+KAIU's inventory management system provides real-time stock tracking, product catalog management, and an admin interface for managing the entire product database. It includes a sophisticated stock reservation system to prevent overselling.
+
+## Product Data Model
+
+### Database Schema
+
+Product structure in Prisma:
+
+```typescript
+interface Product {
+  id: string; // UUID
+  sku: string; // Unique identifier (e.g., "KAIU-LAV-10ML")
+  name: string; // Product name (e.g., "Aceite Esencial de Lavanda")
+  slug: string; // URL-friendly name
+  
+  // Variant info
+  variantName?: string; // Size/format (e.g., "10ml", "30ml")
+  
+  // Description
+  description: string;
+  benefits?: string; // Comma-separated (e.g., "Relajación, Sueño")
+  category: string; // e.g., "Aceites Esenciales"
+  
+  // Pricing & Stock
+  price: number; // In Colombian Pesos (COP)
+  stock: number; // Available units
+  reserved: number; // Units reserved for pending orders
+  
+  // Physical properties
+  weight: number; // Kilograms
+  width: number; // Centimeters
+  height: number;
+  length: number;
+  
+  // Images
+  images: string[]; // Array of image URLs
+  
+  // Status
+  isActive: boolean; // Visible to customers
+  
+  // Timestamps
+  createdAt: DateTime;
+  updatedAt: DateTime;
+}
+```
+
+### Product Variants
+
+Products with multiple sizes/formats are stored as separate records:
+
+<Tabs>
+  <Tab title="Same Product, Different Sizes">
+    Example: Lavender Essential Oil
+    
+    ```json
+    [
+      {
+        "sku": "KAIU-LAV-10",
+        "name": "Aceite Esencial de Lavanda",
+        "variantName": "10ml",
+        "price": 45000,
+        "stock": 50
+      },
+      {
+        "sku": "KAIU-LAV-30",
+        "name": "Aceite Esencial de Lavanda",
+        "variantName": "30ml",
+        "price": 120000,
+        "stock": 30
+      },
+      {
+        "sku": "KAIU-LAV-50",
+        "name": "Aceite Esencial de Lavanda",
+        "variantName": "50ml",
+        "price": 180000,
+        "stock": 20
+      }
+    ]
+    ```
+    
+    <Info>
+      Each variant has independent stock levels and pricing.
+    </Info>
+  </Tab>
+  
+  <Tab title="Frontend Display">
+    Variants grouped in product card:
+    
+    ```typescript
+    // Group products by name
+    const productGroups = products.reduce((acc, product) => {
+      if (!acc[product.name]) acc[product.name] = [];
+      acc[product.name].push(product);
+      return acc;
+    }, {});
+    
+    // Show variant selector
+    <Select>
+      {variants.map(v => (
+        <option value={v.sku}>
+          {v.variantName} - ${v.price.toLocaleString()}
+        </option>
+      ))}
+    </Select>
+    ```
+  </Tab>
+</Tabs>
+
+## Stock Management
+
+### Reservation System
+
+To prevent overselling during checkout process, system uses two-tier stock tracking:
+
+<CardGroup cols={2}>
+  <Card title="Available Stock" icon="box">
+    **`stock` field**
+    
+    Total units physically in warehouse.
+    
+    Updated when:
+    - Receiving new inventory
+    - Completing sales (COD immediate, Online after payment)
+    - Cancelling orders (stock released)
+  </Card>
+  
+  <Card title="Reserved Stock" icon="clock">
+    **`reserved` field**
+    
+    Units temporarily held for pending orders.
+    
+    Updated when:
+    - Order created (reserves)
+    - Order confirmed (converts to sale)
+    - Order cancelled (releases)
+  </Card>
+</CardGroup>
+
+**Actual available units for new orders:**
+```typescript
+const availableForSale = product.stock - product.reserved;
+```
+
+### Inventory Service
+
+Backend service handles all stock operations (`backend/services/inventory/InventoryService.js`):
+
+<Accordion>
+  <AccordionGroup>
+    <Accordion title="reserveStock()">
+      **Reserve units for new order**
+      
+      Called during order creation:
+      
+      ```javascript
+      class InventoryService {
+        static async reserveStock(lineItems) {
+          for (const item of lineItems) {
+            const product = await prisma.product.findUnique({
+              where: { sku: item.sku }
+            });
+            
+            if (!product) {
+              throw new Error(`Product ${item.sku} not found`);
+            }
+            
+            const available = product.stock - product.reserved;
+            if (available < item.quantity) {
+              throw new Error(
+                `Insufficient stock for ${product.name}. ` +
+                `Available: ${available}, Requested: ${item.quantity}`
+              );
+            }
+            
+            // Increment reserved counter
+            await prisma.product.update({
+              where: { sku: item.sku },
+              data: {
+                reserved: product.reserved + item.quantity
+              }
+            });
+          }
+        }
+      }
+      ```
+      
+      <Warning>
+        Throws error if insufficient stock, allowing order creation to fail cleanly before any database writes.
+      </Warning>
+    </Accordion>
+    
+    <Accordion title="confirmSale()">
+      **Convert reservation to actual sale**
+      
+      Called when:
+      - COD order created (immediate)
+      - Online payment confirmed (webhook)
+      
+      ```javascript
+      static async confirmSale(lineItems) {
+        for (const item of lineItems) {
+          const product = await prisma.product.findUnique({
+            where: { sku: item.sku }
+          });
+          
+          // Deduct from both stock and reserved
+          await prisma.product.update({
+            where: { sku: item.sku },
+            data: {
+              stock: product.stock - item.quantity,
+              reserved: product.reserved - item.quantity
+            }
+          });
+        }
+      }
+      ```
+      
+      **Effect:**
+      - `stock` decreases (physical inventory reduced)
+      - `reserved` decreases (no longer held)
+      - Net effect: `available = stock - reserved` stays same
+    </Accordion>
+    
+    <Accordion title="releaseReserve()">
+      **Return reserved units to pool**
+      
+      Called when:
+      - Order cancelled
+      - Order creation fails (rollback)
+      - Online payment fails/expires
+      
+      ```javascript
+      static async releaseReserve(lineItems) {
+        for (const item of lineItems) {
+          const product = await prisma.product.findUnique({
+            where: { sku: item.sku }
+          });
+          
+          // Only decrease reserved counter
+          await prisma.product.update({
+            where: { sku: item.sku },
+            data: {
+              reserved: Math.max(0, product.reserved - item.quantity)
+            }
+          });
+        }
+      }
+      ```
+      
+      <Info>
+        Uses `Math.max(0, ...)` to prevent reserved from going negative in edge cases.
+      </Info>
+    </Accordion>
+  </AccordionGroup>
+</Accordion>
+
+### Stock Flow Examples
+
+<Tabs>
+  <Tab title="COD Order">
+    **Cash on Delivery Flow**
+    
+    Initial state:
+    ```json
+    { "sku": "KAIU-LAV-10", "stock": 50, "reserved": 0 }
+    ```
+    
+    Customer orders 2 units:
+    
+    1. **Reserve stock:**
+       ```json
+       { "stock": 50, "reserved": 2 }
+       ```
+       Available: 50 - 2 = 48
+    
+    2. **Confirm sale (immediate):**
+       ```json
+       { "stock": 48, "reserved": 0 }
+       ```
+       Available: 48 - 0 = 48
+    
+    <Info>
+      COD orders confirm immediately because payment is guaranteed at delivery.
+    </Info>
+  </Tab>
+  
+  <Tab title="Online Payment">
+    **Wompi Online Payment Flow**
+    
+    Initial state:
+    ```json
+    { "sku": "KAIU-LAV-10", "stock": 50, "reserved": 0 }
+    ```
+    
+    Customer orders 2 units:
+    
+    1. **Reserve stock:**
+       ```json
+       { "stock": 50, "reserved": 2 }
+       ```
+       Available: 50 - 2 = 48
+    
+    2. **Wait for payment...**
+       
+       Stock stays reserved while customer completes payment.
+    
+    3a. **Payment confirmed (webhook):**
+        ```json
+        { "stock": 48, "reserved": 0 }
+        ```
+        Available: 48 - 0 = 48
+    
+    3b. **Payment failed/cancelled:**
+        ```json
+        { "stock": 50, "reserved": 0 }
+        ```
+        Available: 50 - 0 = 50 (released)
+  </Tab>
+  
+  <Tab title="Order Cancellation">
+    **Cancel Before Shipment**
+    
+    Order exists with:
+    ```json
+    { "stock": 48, "reserved": 0 }
+    ```
+    
+    Admin cancels order:
+    
+    ```json
+    { "stock": 50, "reserved": 0 }
+    ```
+    
+    Stock returned to pool (both `stock` and available increase).
+  </Tab>
+</Tabs>
+
+## Admin Interface
+
+### Inventory Manager Component
+
+Admin dashboard includes dedicated inventory tab (`src/components/admin/InventoryManager.tsx` - referenced in AdminDashboard.tsx:470).
+
+**Features:**
+- View all products in sortable table
+- Filter by category, status (active/inactive)
+- Search by name or SKU
+- Edit product details inline
+- Adjust stock levels
+- Upload/change images
+- Create new products
+- Bulk operations
+
+### API Endpoints
+
+Inventory management API (`backend/admin/inventory.js`):
+
+<Tabs>
+  <Tab title="GET /api/admin/inventory">
+    **Fetch all products**
+    
+    ```javascript
+    const products = await prisma.product.findMany({
+      orderBy: [
+        { name: 'asc' },
+        { variantName: 'asc' }
+      ]
+    });
+    
+    return res.status(200).json(products);
+    ```
+    
+    Returns array of all products, sorted by name then variant.
+  </Tab>
+  
+  <Tab title="POST /api/admin/inventory">
+    **Create new product**
+    
+    ```javascript
+    const { 
+      sku, name, description, variantName, 
+      category, price, stock, isActive, 
+      benefits, weight, width, height, length, images 
+    } = req.body;
+    
+    if (!name || price === undefined) {
+      return res.status(400).json({ 
+        error: 'Name and price are required' 
+      });
+    }
+    
+    const safeSku = sku || `KAIU-${Date.now().toString(36).toUpperCase()}`;
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + 
+                 '-' + safeSku.toLowerCase();
+    
+    const newProduct = await prisma.product.create({
+      data: {
+        sku: safeSku,
+        name: String(name),
+        slug,
+        description: String(description) || '',
+        variantName: variantName ? String(variantName) : null,
+        category: category || 'Otros',
+        price: Number(price),
+        stock: Number(stock) || 0,
+        isActive: isActive !== undefined ? Boolean(isActive) : true,
+        images: Array.isArray(images) ? images : [],
+        benefits: benefits ? String(benefits) : null,
+        weight: weight !== undefined ? Number(weight) : 0.2,
+        width: width !== undefined ? Number(width) : 10,
+        height: height !== undefined ? Number(height) : 10,
+        length: length !== undefined ? Number(length) : 10
+      }
+    });
+    
+    return res.status(201).json({ success: true, product: newProduct });
+    ```
+    
+    <Info>
+      If SKU not provided, auto-generates one using timestamp.
+    </Info>
+  </Tab>
+  
+  <Tab title="PUT /api/admin/inventory">
+    **Update existing product**
+    
+    ```javascript
+    const { sku, updates } = req.body;
+    
+    if (!sku || !updates) {
+      return res.status(400).json({ 
+        error: 'Missing SKU or updates' 
+      });
+    }
+    
+    const { 
+      price, stock, isActive, name, description, 
+      category, variantName, benefits, 
+      weight, width, height, length, images 
+    } = updates;
+    
+    const dataToUpdate = {};
+    if (typeof price !== 'undefined') dataToUpdate.price = Number(price);
+    if (typeof stock !== 'undefined') dataToUpdate.stock = Number(stock);
+    if (typeof isActive !== 'undefined') dataToUpdate.isActive = Boolean(isActive);
+    // ... more fields
+    
+    const updatedProduct = await prisma.product.update({
+      where: { sku: sku },
+      data: dataToUpdate
+    });
+    
+    return res.status(200).json({ success: true, product: updatedProduct });
+    ```
+    
+    Only provided fields are updated (partial update supported).
+  </Tab>
+</Tabs>
+
+<Warning>
+  **Authentication Required**: All inventory endpoints verify admin JWT token:
+  
+  ```javascript
+  const user = verifyAdminToken(req);
+  if (!user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  ```
+</Warning>
+
+## Product Categories
+
+Standard categories used in KAIU:
+
+<CardGroup cols={2}>
+  <Card title="Aceites Esenciales" icon="droplet">
+    Essential oils extracted from plants
+  </Card>
+  
+  <Card title="Aceites Portadores" icon="flask">
+    Carrier oils for diluting essentials
+  </Card>
+  
+  <Card title="Hidrolatos" icon="spray-can">
+    Floral waters from distillation
+  </Card>
+  
+  <Card title="Kits" icon="gift">
+    Product bundles and gift sets
+  </Card>
+  
+  <Card title="Difusores" icon="wind">
+    Aromatherapy diffusers
+  </Card>
+  
+  <Card title="Otros" icon="box">
+    Miscellaneous products
+  </Card>
+</CardGroup>
+
+## Stock Alerts
+
+### Low Stock Detection
+
+System can be configured to alert when stock falls below threshold:
+
+```typescript
+// Future enhancement
+const LOW_STOCK_THRESHOLD = 5;
+
+const lowStockProducts = await prisma.product.findMany({
+  where: {
+    stock: { lt: LOW_STOCK_THRESHOLD },
+    isActive: true
+  }
+});
+
+if (lowStockProducts.length > 0) {
+  // Send notification to admin
+  sendLowStockAlert(lowStockProducts);
+}
+```
+
+### Out of Stock Handling
+
+<Tabs>
+  <Tab title="Frontend">
+    Product cards automatically show "Out of Stock" badge:
+    
+    ```typescript
+    if (product.stock - product.reserved <= 0) {
+      return (
+        <Badge variant="destructive">Agotado</Badge>
+        <Button disabled>No Disponible</Button>
+      );
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Cart">
+    Cart validates stock before checkout:
+    
+    ```typescript
+    const available = product.stock - product.reserved;
+    if (quantity > available) {
+      toast({
+        variant: "destructive",
+        title: "Stock insuficiente",
+        description: `Solo ${available} unidades disponibles`
+      });
+      return;
+    }
+    ```
+  </Tab>
+  
+  <Tab title="AI Chatbot">
+    AI assistant queries real-time stock:
+    
+    ```javascript
+    const products = await prisma.product.findMany({
+      where: { name: { contains: query } },
+      select: { stock: true, isActive: true }
+    });
+    
+    if (product.stock === 0) {
+      return "Este producto está temporalmente agotado.";
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Image Management
+
+### Upload Flow
+
+<Steps>
+  <Step title="Admin Uploads">
+    Admin selects image file in inventory manager
+  </Step>
+  
+  <Step title="CDN/Storage">
+    Image uploaded to cloud storage (e.g., AWS S3, Cloudinary)
+  </Step>
+  
+  <Step title="URL Stored">
+    Image URL saved in `images` array:
+    ```json
+    {
+      "images": [
+        "https://cdn.kaiu.com/products/lavanda-10ml.jpg",
+        "https://cdn.kaiu.com/products/lavanda-10ml-2.jpg"
+      ]
+    }
+    ```
+  </Step>
+  
+  <Step title="Display">
+    Frontend loads images from URLs in product catalog
+  </Step>
+</Steps>
+
+### Multiple Images
+
+Products support multiple images (array):
+- First image is primary (shown in catalog)
+- Additional images in product detail page gallery
+- AI chatbot uses first image when sending product photos
+
+## Data Integrity
+
+### SKU Uniqueness
+
+SKU field has unique constraint:
+
+```prisma
+model Product {
+  sku String @unique
+  // ...
+}
+```
+
+Attempting to create duplicate SKU fails:
+```javascript
+PrismaClientKnownRequestError: 
+Unique constraint failed on the fields: (`sku`)
+```
+
+### Stock Validation
+
+Stock and reserved fields have checks:
+
+```javascript
+// Prevent negative stock
+if (newStock < 0) {
+  throw new Error('Stock cannot be negative');
+}
+
+// Prevent reserved exceeding stock
+if (reserved > stock) {
+  throw new Error('Reserved cannot exceed total stock');
+}
+```
+
+## Reporting
+
+### Inventory Value
+
+Calculate total inventory value:
+
+```typescript
+const inventoryValue = await prisma.product.aggregate({
+  where: { isActive: true },
+  _sum: {
+    // SQL: SUM(price * stock)
+  }
+});
+
+// Using Prisma's raw query
+const result = await prisma.$queryRaw`
+  SELECT SUM(price * stock) as total_value
+  FROM Product
+  WHERE isActive = true
+`;
+```
+
+### Stock Movement Report
+
+Track stock changes over time (future enhancement):
+
+```typescript
+interface StockMovement {
+  id: string;
+  productId: string;
+  type: 'PURCHASE' | 'SALE' | 'ADJUSTMENT' | 'RETURN';
+  quantity: number; // Positive or negative
+  previousStock: number;
+  newStock: number;
+  reason?: string;
+  createdAt: DateTime;
+}
+```
+
+## Integration with AI Chatbot
+
+The AI chatbot queries inventory in real-time:
+
+```javascript
+// In backend/services/ai/Retriever.js
+async function executeSearchInventory(query) {
+  const products = await prisma.product.findMany({
+    where: {
+      OR: [
+        { name: { contains: query, mode: 'insensitive' } },
+        { category: { contains: query, mode: 'insensitive' } },
+        { variantName: { contains: query, mode: 'insensitive' } }
+      ]
+    },
+    select: {
+      id: true,
+      name: true,
+      variantName: true,
+      price: true,
+      stock: true,
+      isActive: true,
+      category: true,
+      description: true
+    }
+  });
+  
+  // Only return active products
+  return JSON.stringify(products.filter(p => p.isActive));
+}
+```
+
+See [AI Chatbot](/features/ai-chatbot) for details.
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Always Reserve First" icon="lock">
+    Never deduct stock directly. Always:
+    1. Reserve
+    2. Process order
+    3. Confirm or release
+  </Card>
+  
+  <Card title="Atomic Operations" icon="atom">
+    Use database transactions for multi-product operations to ensure consistency.
+  </Card>
+  
+  <Card title="Audit Trail" icon="list">
+    Log all stock changes with timestamp, reason, and admin user for accountability.
+  </Card>
+  
+  <Card title="Regular Reconciliation" icon="refresh">
+    Periodically verify:
+    - `reserved` matches pending orders
+    - Physical count matches database
+    - No orphaned reservations
+  </Card>
+</CardGroup>
+
+## Related Features
+
+<CardGroup cols={3}>
+  <Card title="Order Management" icon="box" href="/features/order-management">
+    How orders consume inventory
+  </Card>
+  
+  <Card title="Admin Dashboard" icon="gauge" href="/features/admin-dashboard">
+    Inventory management interface
+  </Card>
+  
+  <Card title="E-commerce" icon="shopping-cart" href="/features/ecommerce">
+    Product catalog and shopping
+  </Card>
+</CardGroup>

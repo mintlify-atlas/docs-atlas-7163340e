@@ -1,0 +1,113 @@
+---
+title: Deployment Overview
+description: Overview of deployment options for KAIU Natural Living
+---
+
+KAIU Natural Living is a modern e-commerce platform powered by an AI Orchestrator for WhatsApp. This guide covers the deployment options and considerations for production environments.
+
+## Architecture
+
+The system uses a robust and scalable stack:
+
+- **Frontend**: React + Vite + TailwindCSS (Dashboard & Store)
+- **Backend**: Node.js + Express
+- **Database**: PostgreSQL (Supabase) with `pgvector` extension for RAG
+- **ORM**: Prisma IO
+- **Queues / Background**: BullMQ + Redis
+- **AI**: Anthropic Claude 3.5 Sonnet + LangChain
+- **Messaging**: WhatsApp Cloud API
+
+## Deployment Options
+
+You can deploy KAIU Natural Living using several platforms:
+
+### 1. Vercel (Recommended for Quick Setup)
+
+Ideal for deploying both frontend and backend with serverless functions.
+
+- Zero-config deployment
+- Automatic SSL certificates
+- Edge network for fast global access
+- Built-in environment variable management
+
+[Learn more about Vercel deployment →](/deployment/vercel)
+
+### 2. Railway
+
+Great for full-stack deployment with managed database and Redis.
+
+- Managed PostgreSQL and Redis instances
+- Easy environment configuration
+- Automatic deployments from Git
+- Built-in metrics and logging
+
+[Learn more about Railway deployment →](/deployment/railway)
+
+### 3. VPS (Virtual Private Server)
+
+For maximum control and customization:
+
+- Full server access
+- Custom configurations
+- Self-managed infrastructure
+- Cost-effective for high traffic
+
+## Infrastructure Requirements
+
+### Database
+
+<Warning>
+PostgreSQL 12+ with the `pgvector` extension is required for the RAG (Retrieval-Augmented Generation) functionality.
+</Warning>
+
+**Recommended provider**: [Supabase](https://supabase.com)
+- Includes `pgvector` extension by default
+- Generous free tier
+- Automatic backups
+- Real-time capabilities
+
+### Redis
+
+**Recommended provider**: [Upstash](https://upstash.com) or Railway
+- Required for BullMQ job queues
+- Background task processing
+- Session management
+
+### Alternative: Railway for Both
+
+Railway can host both PostgreSQL and Redis in a single platform, simplifying infrastructure management.
+
+## Prerequisites
+
+Before deploying, ensure you have:
+
+- Node.js v20+
+- PostgreSQL database with `pgvector` enabled
+- Redis instance (local or remote)
+- WhatsApp Cloud API credentials from Meta
+- Anthropic API key for Claude 3.5 Sonnet
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Setup" icon="gear" href="/deployment/environment-setup">
+    Configure production environment variables
+  </Card>
+  <Card title="Vercel Deployment" icon="rocket" href="/deployment/vercel">
+    Deploy to Vercel in minutes
+  </Card>
+  <Card title="Railway Deployment" icon="train" href="/deployment/railway">
+    Full-stack deployment on Railway
+  </Card>
+</CardGroup>
+
+<Warning>
+**Production Considerations**
+
+- Always use production-grade databases (never development/local instances)
+- Enable SSL/TLS for all connections
+- Set up proper monitoring and logging
+- Configure rate limiting for API endpoints
+- Implement proper backup strategies
+- Review and secure all environment variables
+</Warning>

@@ -1,0 +1,372 @@
+---
+title: 'Orders API'
+description: 'Manage orders, shipping labels, and logistics'
+icon: 'box'
+---
+
+<Warning>
+  All endpoints require JWT authentication via `Authorization: Bearer <token>` header.
+</Warning>
+
+---
+
+## Get All Orders
+
+<Card title="GET /api/admin/orders" icon="list">
+  Fetch recent orders with product details and shipping information
+</Card>
+
+### Authentication
+
+Required. Token validated via `verifyAdminToken(req)` helper.
+
+### Response
+
+<ResponseField name="items" type="array">
+  Array of order objects (limited to 100 most recent)
+  <Expandable title="Order Object">
+    <ResponseField name="id" type="string">
+      Internal UUID
+    </ResponseField>
+    <ResponseField name="pin" type="string">
+      Customer-facing readable ID
+    </ResponseField>
+    <ResponseField name="customer_name" type="string">
+      Full name from order
+    </ResponseField>
+    <ResponseField name="created_at" type="datetime">
+      Order creation timestamp
+    </ResponseField>
+    <ResponseField name="status" type="string">
+      Order status: `PENDING`, `CONFIRMED`, `PROCESSING`, `READY_TO_SHIP`, `PICKUP_REQUESTED`, `SHIPPED`, `DELIVERED`, `CANCELLED`, `RETURNED`, `REJECTED`
+    </ResponseField>
+    <ResponseField name="total" type="number">
+      Total order value in COP
+    </ResponseField>
+    <ResponseField name="payment_status" type="string">
+      `PAID` if confirmed or WOMPI payment, otherwise `PENDING`
+    </ResponseField>
+    <ResponseField name="payment_method" type="string">
+      `COD` (Cash on Delivery) or `WOMPI` (prepaid)
+    </ResponseField>
+    <ResponseField name="shipping_info" type="object">
+      Parsed JSON shipping address
+    </ResponseField>
+    <ResponseField name="billing_info" type="object">
+      Parsed JSON billing address (if different from shipping)
+    </ResponseField>
+    <ResponseField name="line_items" type="array">
+      Products in order
+      <Expandable title="Line Item">
+        <ResponseField name="name" type="string">Product name</ResponseField>
+        <ResponseField name="quantity" type="number">Quantity ordered</ResponseField>
+        <ResponseField name="sku" type="string">Product SKU</ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="shipments" type="array">
+      Tracking information (if shipped)
+      <Expandable title="Shipment">
+        <ResponseField name="carrier_name" type="string">Carrier name</ResponseField>
+        <ResponseField name="tracking_number" type="string">Tracking number</ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Implementation
+
+From `orders.js:16-24`:
+
+```javascript
+const orders = await prisma.order.findMany({
+  orderBy: { createdAt: 'desc' },
+  include: {
+    items: {
+      include: { product: true } // Include product details
+    }
+  },
+  take: 100 // Limit for now
+});
+```
+
+### Example Response
+
+```json
+{
+  "items": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "pin": "1234",
+      "customer_name": "María García",
+      "created_at": "2026-03-04T10:30:00Z",
+      "status": "CONFIRMED",
+      "total": 89900,
+      "payment_status": "PAID",
+      "payment_method": "WOMPI",
+      "shipping_info": {
+        "address": "Calle 123 #45-67",
+        "city": "Bogotá",
+        "phone": "3001234567"
+      },
+      "line_items": [
+        {
+          "name": "Jabón Natural de Lavanda",
+          "quantity": 2,
+          "sku": "KAIU-LAV-100"
+        }
+      ],
+      "shipments": []
+    }
+  ]
+}
+```
+
+---
+
+## Generate Shipping Label
+
+<Card title="POST /api/admin/generate-label" icon="tag">
+  Create shipment and generate shipping labels via Venndelo API
+</Card>
+
+### Request Body
+
+<ParamField body="orderIds" type="array" required>
+  Array of KAIU internal order UUIDs (not Venndelo IDs)
+</ParamField>
+
+### Response
+
+<ResponseField name="status" type="string">
+  `SUCCESS` when label is ready, `PROCESSING` if still generating
+</ResponseField>
+
+<ResponseField name="data" type="string">
+  PDF URL for the shipping label (when status is SUCCESS)
+</ResponseField>
+
+### Process Flow
+
+1. **Resolve Venndelo IDs**: Fetch `externalId` from database for each order
+2. **Create Shipment** (if needed): Call Venndelo `/shipping/create-shipments`
+3. **Poll for Label**: Retry up to 20 times (30 seconds max) waiting for label generation
+4. **Send Email**: Automatically send shipping confirmation with tracking number
+
+From `generate-label.js:92-113`:
+
+```javascript
+let attempts = 0;
+const maxAttempts = 20;
+
+while (attempts < maxAttempts) {
+  attempts++;
+  
+  const payload = {
+    order_ids: venndeloIds,
+    format: "LABEL_10x15",
+    output: "URL"
+  };
+
+  const response = await fetch(
+    `https://api.venndelo.com/v1/admin/shipping/generate-labels`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Venndelo-Api-Key': VENNDELO_API_KEY
+      },
+      body: JSON.stringify(payload)
+    }
+  );
+  // ... check status and retry if PROCESSING
+}
+```
+
+### Example Request
+
+```javascript
+const response = await fetch('https://api.kaiucol.com/api/admin/generate-label', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+  },
+  body: JSON.stringify({
+    orderIds: ['550e8400-e29b-41d4-a716-446655440000']
+  })
+});
+```
+
+### Example Response
+
+<CodeGroup>
+```json Success
+{
+  "status": "SUCCESS",
+  "data": "https://venndelo-labels.s3.amazonaws.com/label-12345.pdf"
+}
+```
+
+```json Processing
+{
+  "status": "PROCESSING",
+  "message": "La guía se está generando. Por favor espera 10 segundos y presiona el botón de nuevo."
+}
+```
+
+```json Error - Insufficient Balance
+{
+  "error": "Saldo insuficiente para generar la guía prepagada"
+}
+```
+</CodeGroup>
+
+<Warning>
+  **Common Errors**:
+  - `Insufficient balance`: Venndelo prepaid account needs recharge
+  - Shipment creation fails if order already has active shipment
+  - Label generation requires valid shipping address and product dimensions
+</Warning>
+
+---
+
+## Request Pickup
+
+<Card title="POST /api/admin/request-pickup" icon="truck">
+  Request carrier pickup for ready-to-ship orders
+</Card>
+
+### Request Body
+
+<ParamField body="orderIds" type="array" required>
+  Array of KAIU internal order UUIDs
+</ParamField>
+
+### Behavior
+
+1. Resolves Venndelo external IDs from database
+2. Calls Venndelo `/shipping/request-pickup`
+3. **Auto-updates** order status to `PICKUP_REQUESTED`
+
+From `request-pickup.js:68-77`:
+
+```javascript
+// AUTO-UPDATE LOCAL STATUS TO SHIPPED
+await prisma.order.updateMany({
+  where: { 
+    externalId: { in: venndeloIds } 
+  },
+  data: { 
+    status: 'PICKUP_REQUESTED', 
+    updatedAt: new Date() 
+  }
+});
+```
+
+### Example Request
+
+```javascript
+await fetch('https://api.kaiucol.com/api/admin/request-pickup', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer <token>',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    orderIds: ['550e8400-e29b-41d4-a716-446655440000']
+  })
+});
+```
+
+---
+
+## Sync Shipments
+
+<Card title="POST /api/admin/sync-shipments" icon="arrows-rotate">
+  Synchronize tracking status for active orders from logistics providers
+</Card>
+
+### Authentication
+
+Required JWT token.
+
+### Process
+
+1. **Fetch Active Orders**: Orders with status `PENDING` through `SHIPPED` that have `externalId`
+2. **Query Logistics**: Calls `LogisticsManager.getShipmentStatus()` for each order
+3. **Update Status**: Updates database if status changed
+4. **Batch Limit**: Processes 50 orders per request (ordered by oldest `updatedAt`)
+
+From `sync-shipments.js:20-38`:
+
+```javascript
+const activeOrders = await prisma.order.findMany({
+  where: {
+    externalId: { not: null },
+    status: {
+      in: ['PENDING', 'CONFIRMED', 'PROCESSING', 'READY_TO_SHIP', 
+           'PICKUP_REQUESTED', 'SHIPPED']
+    }
+  },
+  take: 50, // Límite por lote para evitar timeouts
+  orderBy: { updatedAt: 'asc' }, // Priorizar las que no se han actualizado recientemente
+  select: { 
+    id: true, 
+    externalId: true, 
+    status: true, 
+    carrier: true, 
+    readableId: true, 
+    trackingNumber: true,
+    paymentMethod: true
+  }
+});
+```
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  True if sync completed
+</ResponseField>
+
+<ResponseField name="processed" type="number">
+  Number of orders checked
+</ResponseField>
+
+<ResponseField name="updated" type="number">
+  Number of orders with status changes
+</ResponseField>
+
+<ResponseField name="details" type="array">
+  Array of updates
+  <Expandable title="Update Object">
+    <ResponseField name="id" type="string">Readable order ID</ResponseField>
+    <ResponseField name="old" type="string">Previous status</ResponseField>
+    <ResponseField name="new" type="string">New status</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "processed": 50,
+  "updated": 3,
+  "details": [
+    {
+      "id": "1234",
+      "old": "PICKUP_REQUESTED",
+      "new": "SHIPPED"
+    },
+    {
+      "id": "1235",
+      "old": "SHIPPED",
+      "new": "DELIVERED"
+    }
+  ]
+}
+```
+
+<Tip>
+  Run this endpoint periodically (e.g., every 30 minutes) via a cron job to keep order statuses up-to-date.
+</Tip>

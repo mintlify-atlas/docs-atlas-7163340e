@@ -1,0 +1,210 @@
+---
+title: Local Development Setup
+description: Complete guide to setting up KAIU Natural Living locally
+---
+
+## Prerequisites
+
+Before starting, ensure you have the following installed:
+
+- Node.js v20 or higher
+- PostgreSQL with `pgvector` extension enabled
+- Redis Server (local or remote)
+- Git
+
+## Environment Setup
+
+<Steps>
+
+### Clone the Repository
+
+```bash
+git clone <repository-url>
+cd kaiu-natural-living
+```
+
+### Install Dependencies
+
+```bash
+npm install
+```
+
+### Configure Environment Variables
+
+Create environment files from examples:
+
+```bash
+cp .env.example .env.local
+cp .env.example prisma/.env
+```
+
+Update the following critical variables:
+
+**Database Configuration**
+```bash
+DATABASE_URL="postgresql://user:password@localhost:5432/kaiu_db"
+```
+
+**Redis Configuration**
+```bash
+REDIS_HOST="localhost"
+REDIS_PORT="6379"
+```
+
+**WhatsApp Cloud API**
+```bash
+WHATSAPP_PHONE_NUMBER_ID="your_phone_number_id"
+WHATSAPP_TOKEN="your_access_token"
+WHATSAPP_VERIFY_TOKEN="your_verify_token"
+```
+
+**AI Configuration**
+```bash
+ANTHROPIC_API_KEY="your_anthropic_key"
+```
+
+### Setup Database
+
+Push the Prisma schema to your database:
+
+```bash
+npx prisma db push
+```
+
+Optionally, seed initial data:
+
+```bash
+npm run seed
+```
+
+See the [Seeding Guide](/development/seeding) for details on what data gets seeded.
+
+### Start Development Servers
+
+Use the magic script to start everything:
+
+```bash
+./START_ALL.sh
+```
+
+This script will:
+1. Start Redis server (if not running)
+2. Launch the backend API on port 3001
+3. Launch the Vite frontend on port 8080
+
+</Steps>
+
+## Manual Start (Alternative)
+
+If you prefer to start services individually:
+
+### Start Redis
+```bash
+redis-server --daemonize yes
+```
+
+### Start Backend API
+```bash
+npm run api:dev
+```
+
+The backend will run on `http://localhost:3001` with hot reload via nodemon.
+
+### Start Frontend
+```bash
+npm run dev
+```
+
+The frontend will run on `http://localhost:8080` with HMR enabled.
+
+## Available NPM Scripts
+
+### Frontend Development
+- `npm run dev` - Start Vite dev server (port 8080)
+- `npm run build` - Production build
+- `npm run build:dev` - Development build
+- `npm run preview` - Preview production build
+
+### Backend Development
+- `npm run api` - Start backend server
+- `npm run api:dev` - Start backend with nodemon (hot reload)
+
+### Testing
+- `npm run test` - Run all tests once
+- `npm run test:watch` - Run tests in watch mode
+
+### Code Quality
+- `npm run lint` - Run ESLint
+
+## Verifying the Setup
+
+<Steps>
+
+### Check Redis Connection
+
+```bash
+redis-cli ping
+```
+
+Should return: `PONG`
+
+### Check Database Connection
+
+```bash
+npx prisma studio
+```
+
+Opens Prisma Studio at `http://localhost:5555` to browse your database.
+
+### Check API Health
+
+Visit: `http://localhost:3001/api/health` (if health endpoint exists)
+
+### Check Frontend
+
+Visit: `http://localhost:8080`
+
+</Steps>
+
+## Troubleshooting
+
+### Redis Connection Issues
+
+If Redis fails to start:
+```bash
+# Check if Redis is already running
+pgrep redis-server
+
+# Start manually
+sudo systemctl start redis
+# OR
+redis-server /path/to/redis.conf
+```
+
+### Database Connection Issues
+
+Ensure PostgreSQL is running and the `pgvector` extension is installed:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+### Port Already in Use
+
+If port 3001 or 8080 is in use:
+
+```bash
+# Find process using the port
+lsof -i :3001
+lsof -i :8080
+
+# Kill the process
+kill -9 <PID>
+```
+
+## Next Steps
+
+- Review the [Project Structure](/development/project-structure)
+- Learn about [Database Migrations](/development/migrations)
+- Explore [Testing Guide](/development/testing)
+- Check [Debugging Tips](/development/debugging)

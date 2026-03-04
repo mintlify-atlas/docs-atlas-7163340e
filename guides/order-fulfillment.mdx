@@ -1,0 +1,386 @@
+---
+title: 'Order Fulfillment Workflow'
+description: 'Step-by-step guide to processing orders, generating shipping labels, and managing pickups'
+icon: 'truck-fast'
+---
+
+## Fulfillment Overview
+
+The order fulfillment process consists of three main stages:
+
+1. **Label Generation**: Create shipping labels through Venndelo integration
+2. **Pickup Request**: Schedule carrier pickup for ready orders
+3. **Tracking & Delivery**: Monitor shipment status until delivered
+
+<Info>
+All fulfillment operations integrate with Venndelo's API. Ensure your `VENNDELO_API_KEY` is configured.
+</Info>
+
+## Order Processing Workflow
+
+<Steps>
+  <Step title="Identify New Orders">
+    Filter by **Por Procesar** (DETAILS) status to see orders needing labels:
+    
+    ```javascript Eligible Statuses
+    ['PENDING', 'APPROVED', 'PREPARING', 'PROCESSING', 'CONFIRMED']
+    ```
+    
+    These orders show a **Generate Label** button (printer icon).
+  </Step>
+  
+  <Step title="Verify Order Details">
+    Check each order for:
+    - Complete shipping address (address_1, city, phone)
+    - Valid product line items
+    - Correct payment status
+    - Customer contact info (email/phone for notifications)
+  </Step>
+  
+  <Step title="Generate Shipping Label">
+    Click the printer button on the order row. This triggers:
+    
+    **Backend Process** (`/api/admin/generate-label`):
+    
+    <Accordion title="Label Generation Technical Flow">
+    ```javascript Label Generation Process
+    // 1. Resolve Venndelo External ID
+    const dbOrders = await prisma.order.findMany({
+      where: { id: { in: orderIds } },
+      select: { externalId: true, status: true }
+    });
+    
+    // 2. Create Shipment (if not exists)
+    await fetch('https://api.venndelo.com/v1/admin/shipping/create-shipments', {
+      method: 'POST',
+      headers: { 'X-Venndelo-Api-Key': VENNDELO_API_KEY },
+      body: JSON.stringify({ order_ids: venndeloIds })
+    });
+    
+    // 3. Poll for Label (max 20 attempts, 1.5s delay)
+    const labelRes = await fetch('https://api.venndelo.com/v1/admin/shipping/generate-labels', {
+      method: 'POST',
+      body: JSON.stringify({
+        order_ids: venndeloIds,
+        format: "LABEL_10x15",
+        output: "URL"
+      })
+    });
+    
+    // 4. Send Email Notification
+    if (labelRes.status === 'SUCCESS') {
+      sendShippingConfirmation(order, trackingNumber, pdfUrl);
+    }
+    ```
+    </Accordion>
+  </Step>
+  
+  <Step title="Download/Print Label">
+    - Label PDF opens in new tab automatically
+    - Toast notification provides manual link if popup blocked
+    - Print 10x15cm thermal label or standard paper
+  </Step>
+  
+  <Step title="Update Order Status">
+    Order automatically moves to **READY_TO_SHIP** status after successful label generation.
+  </Step>
+</Steps>
+
+<Tip>
+Labels can be regenerated/reprinted at any time by clicking the printer icon on READY_TO_SHIP or SHIPPED orders.
+</Tip>
+
+## Requesting Carrier Pickup
+
+Once labels are generated, schedule pickup:
+
+<Steps>
+  <Step title="Filter Ready Orders">
+    Click **Por Recoger** (READY_TO_SHIP) in the status sidebar.
+  </Step>
+  
+  <Step title="Click Request Pickup">
+    Yellow **Solicitar Recogida** button appears on READY_TO_SHIP orders.
+    
+    Confirm the action when prompted.
+  </Step>
+  
+  <Step title="Backend Processing">
+    Calls `/api/admin/request-pickup`:
+    
+    ```javascript Pickup Request
+    // Notify carrier
+    await fetch('https://api.venndelo.com/v1/admin/shipping/request-pickup', {
+      method: 'POST',
+      headers: { 'X-Venndelo-Api-Key': VENNDELO_API_KEY },
+      body: JSON.stringify({ order_ids: venndeloIds })
+    });
+    
+    // Update local status
+    await prisma.order.updateMany({
+      where: { externalId: { in: venndeloIds } },
+      data: { status: 'PICKUP_REQUESTED', updatedAt: new Date() }
+    });
+    ```
+  </Step>
+  
+  <Step title="Confirmation">
+    - Status changes to **PICKUP_REQUESTED** (orange badge)
+    - Badge shows "Esperando Recogida"
+    - Carrier receives pickup notification
+  </Step>
+</Steps>
+
+<Warning>
+Do not request pickup until packages are physically ready. Carriers may charge fees for failed pickup attempts.
+</Warning>
+
+## Label Generation Statuses
+
+### Success Response
+
+```json
+{
+  "status": "SUCCESS",
+  "data": "https://venndelo.com/labels/abc123.pdf"
+}
+```
+
+Action: Open PDF in new window, send shipping confirmation email.
+
+### Processing Response
+
+```json
+{
+  "status": "PROCESSING",
+  "message": "La guía se está generando..."
+}
+```
+
+Action: Wait 10 seconds and retry (handled automatically up to 20 times).
+
+### Error Response
+
+```json
+{
+  "status": "ERROR",
+  "items": [{
+    "status": "ERROR",
+    "errors": [{
+      "message": "Insufficient balance"
+    }]
+  }]
+}
+```
+
+Common errors:
+- **Insufficient balance**: Prepaid account needs funding
+- **Invalid address**: Missing or incorrect shipping details
+- **Shipment already exists**: Safe to ignore, proceed to generate label
+
+## Email Notifications
+
+When labels are generated successfully, customers receive automated emails:
+
+**Email Content:**
+- Order confirmation with readable ID (PIN)
+- Tracking number
+- Carrier name
+- PDF label attachment (optional)
+- Link to tracking page: `https://kaiu.com.co/rastreo?guide={trackingNumber}`
+
+**Implementation:**
+
+```javascript Email Trigger (generate-label.js:136-182)
+// Fetch order details from Venndelo
+const orderRes = await fetch(`https://api.venndelo.com/v1/admin/orders/${venndeloOrderId}`);
+const order = await orderRes.json();
+
+// Extract tracking info
+if (order.shipments && order.shipments.length > 0) {
+  const trackingNumber = order.shipments[0].tracking_number;
+  
+  // Enrich with readable ID from DB
+  const dbOrder = await prisma.order.findFirst({
+    where: { externalId: String(venndeloOrderId) }
+  });
+  
+  const enrichedOrder = {
+    ...order,
+    readableId: dbOrder?.readableId
+  };
+  
+  // Send async (non-blocking)
+  sendShippingConfirmation(enrichedOrder, trackingNumber, pdfUrl);
+}
+```
+
+<Note>
+Email sending is async/non-blocking to prevent label generation delays. Check logs for email delivery status.
+</Note>
+
+## Tracking & Monitoring
+
+### Shipment Sync
+
+Manually sync tracking updates:
+
+<Steps>
+  <Step title="Click Sincronizar">
+    Located in the shipments tab top bar.
+  </Step>
+  
+  <Step title="Backend Sync Process">
+    Endpoint: `/api/admin/sync-shipments`
+    
+    Queries Venndelo for updated shipment statuses and tracking events.
+  </Step>
+  
+  <Step title="Review Results">
+    Toast shows:
+    - **Procesadas**: Number of orders checked
+    - **Actualizadas**: Number of status changes applied
+  </Step>
+</Steps>
+
+### Tracking Number Display
+
+In the order table, the **Rastreo** column shows:
+
+```typescript Tracking Display
+{
+  carrier_name: "Servientrega",        // Carrier
+  tracking_number: "SER123456789"      // Clickable guide number
+}
+```
+
+Clicking the tracking number opens the public tracking page.
+
+## Fulfillment Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Morning Batch Processing" icon="sun">
+    Process all new orders first thing each day. Generate labels in batch for efficiency.
+  </Card>
+  
+  <Card title="Verify Addresses" icon="map-pin">
+    Double-check addresses for COD orders before generating labels to avoid failed deliveries.
+  </Card>
+  
+  <Card title="Coordinate Pickups" icon="calendar">
+    Request pickups only when packages are ready. Group multiple orders for same-day pickup.
+  </Card>
+  
+  <Card title="Monitor Transit Times" icon="clock">
+    Sync tracking daily. Follow up on shipments in transit > 5 days.
+  </Card>
+</CardGroup>
+
+## Handling Special Cases
+
+### Reprint Lost Labels
+
+If a label is lost or damaged:
+
+1. Find the order (use search or filter by READY_TO_SHIP)
+2. Click the printer icon (now shows as "Reimprimir Guía")
+3. Same PDF will be regenerated from Venndelo
+
+<Tip>
+Labels can be reprinted unlimited times without creating duplicate shipments.
+</Tip>
+
+### Cancel a Shipment
+
+To cancel after label generation:
+
+1. Contact Venndelo support (no API endpoint yet)
+2. Manually update order status to CANCELLED in database
+3. Release inventory if needed
+
+### Failed Deliveries
+
+If carrier marks delivery as failed:
+
+1. Check tracking for reason (address issue, customer unavailable)
+2. Contact customer to verify/update address
+3. Coordinate re-delivery with carrier
+4. Sync shipments to update status
+
+## COD Order Workflow
+
+Cash on Delivery orders require special handling:
+
+<Steps>
+  <Step title="Filter COD Orders">
+    Use payment filter: **Contra Entrega**
+  </Step>
+  
+  <Step title="Generate Labels Normally">
+    COD orders generate labels the same way as prepaid orders.
+  </Step>
+  
+  <Step title="Track Collection">
+    After delivery, carrier collects payment and remits to your account.
+  </Step>
+  
+  <Step title="Reconcile Payments">
+    Check carrier's COD reports to match collected amounts with order totals.
+  </Step>
+</Steps>
+
+<Warning>
+COD orders have higher return rates. Consider phone verification before shipping high-value COD orders.
+</Warning>
+
+## Troubleshooting
+
+### Label Generation Fails
+
+**Symptom**: Error message after clicking generate label.
+
+**Solutions**:
+- Check Venndelo account balance (prepaid carriers)
+- Verify shipping address is complete and valid
+- Ensure product dimensions/weight are configured
+- Check backend logs for API error details
+
+### Pickup Not Requested
+
+**Symptom**: Button disabled or missing.
+
+**Solutions**:
+- Verify order status is exactly READY_TO_SHIP
+- Ensure label was generated successfully first
+- Check that shipment exists in Venndelo
+
+### Tracking Not Updating
+
+**Symptom**: Tracking number shows but status stale.
+
+**Solutions**:
+- Click Sincronizar to force update from Venndelo
+- Check carrier's website directly with tracking number
+- Allow 24-48 hours for carrier to scan packages
+
+### Email Not Received
+
+**Symptom**: Customer didn't get shipping notification.
+
+**Solutions**:
+- Check backend logs for email sending errors
+- Verify customer email in order shipping_info
+- Check spam/junk folder
+- Ensure email service credentials are configured
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Admin Portal" icon="shield-check" href="/guides/admin-portal">
+    Return to admin portal overview
+  </Card>
+  
+  <Card title="Payment Integration" icon="credit-card" href="/guides/payment-integration">
+    Learn about payment processing and webhooks
+  </Card>
+</CardGroup>

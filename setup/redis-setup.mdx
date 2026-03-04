@@ -1,0 +1,495 @@
+---
+title: Redis Setup
+description: Configure Redis for BullMQ queue processing in KAIU Natural Living
+---
+
+## Overview
+
+KAIU Natural Living uses **Redis** as the message broker for **BullMQ**, which handles asynchronous processing of WhatsApp messages and AI responses.
+
+## Why Redis?
+
+<CardGroup cols={2}>
+  <Card title="Queue Management" icon="list-check">
+    BullMQ requires Redis for job queue persistence and management
+  </Card>
+  <Card title="Message Deduplication" icon="filter">
+    Prevents duplicate message processing using job IDs
+  </Card>
+  <Card title="Real-time Performance" icon="bolt">
+    In-memory processing for fast WhatsApp response times
+  </Card>
+  <Card title="Worker Coordination" icon="users">
+    Coordinates multiple workers for horizontal scaling
+  </Card>
+</CardGroup>
+
+## Prerequisites
+
+- Redis Server 6.0 or higher
+- At least 256MB available RAM (512MB recommended)
+
+## Installation
+
+<Tabs>
+  <Tab title="Ubuntu/Debian">
+    ```bash
+    # Install Redis
+    sudo apt update
+    sudo apt install redis-server
+
+    # Start Redis service
+    sudo systemctl start redis-server
+    sudo systemctl enable redis-server
+
+    # Verify installation
+    redis-cli ping
+    # Should return: PONG
+    ```
+  </Tab>
+  <Tab title="macOS">
+    ```bash
+    # Using Homebrew
+    brew install redis
+
+    # Start Redis service
+    brew services start redis
+
+    # Verify installation
+    redis-cli ping
+    # Should return: PONG
+    ```
+  </Tab>
+  <Tab title="Docker">
+    ```bash
+    # Pull Redis image
+    docker pull redis:7-alpine
+
+    # Run Redis container
+    docker run -d \
+      --name kaiu-redis \
+      -p 6379:6379 \
+      redis:7-alpine
+
+    # Test connection
+    docker exec -it kaiu-redis redis-cli ping
+    # Should return: PONG
+    ```
+  </Tab>
+  <Tab title="Upstash (Cloud)">
+    <Steps>
+      <Step title="Create Database">
+        1. Go to [Upstash Console](https://console.upstash.com)
+        2. Click "Create Database"
+        3. Choose Redis and select your region
+        4. Click "Create"
+      </Step>
+      <Step title="Get Connection URL">
+        Copy the connection string from the dashboard:
+
+        ```
+        rediss://default:[PASSWORD]@[ENDPOINT].upstash.io:6379
+        ```
+      </Step>
+      <Step title="Configure Environment">
+        Add to `.env.local`:
+
+        ```bash
+        REDIS_URL="rediss://default:[PASSWORD]@example.upstash.io:6379"
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Configuration
+
+<Tabs>
+  <Tab title="Using REDIS_URL">
+    Recommended for production and cloud providers:
+
+    ```bash .env.local
+    # Complete Redis connection URL
+    REDIS_URL="redis://localhost:6379"
+
+    # With password
+    REDIS_URL="redis://default:yourpassword@localhost:6379"
+
+    # Upstash (with TLS)
+    REDIS_URL="rediss://default:xxxxx@example.upstash.io:6379"
+    ```
+
+    The connection is handled in `backend/whatsapp/queue.js:18-27`:
+
+    ```javascript
+    const redisUrl = process.env.REDIS_URL;
+    const redisOpts = { maxRetriesPerRequest: null };
+
+    const queueConnection = redisUrl 
+      ? new IORedis(redisUrl, redisOpts) 
+      : new IORedis(redisOpts);
+    ```
+  </Tab>
+  <Tab title="Using Individual Parameters">
+    Common for local development:
+
+    ```bash .env.local
+    REDIS_HOST="localhost"
+    REDIS_PORT="6379"
+    REDIS_PASSWORD=""  # Leave empty if no password
+    ```
+
+    Connection logic:
+
+    ```javascript
+    if (!redisUrl) {
+        redisOpts.host = process.env.REDIS_HOST || 'localhost';
+        redisOpts.port = process.env.REDIS_PORT || 6379;
+        redisOpts.password = process.env.REDIS_PASSWORD;
+    }
+    ```
+  </Tab>
+</Tabs>
+
+<Info>
+  If `REDIS_URL` is provided, it takes precedence over individual parameters.
+</Info>
+
+## BullMQ Integration
+
+KAIU uses BullMQ for WhatsApp message processing with the following configuration:
+
+### Queue Definition
+
+```javascript backend/whatsapp/queue.js
+import { Queue, Worker } from 'bullmq';
+import IORedis from 'ioredis';
+
+// Create queue
+export const whatsappQueue = new Queue('whatsapp-ai', { 
+  connection: queueConnection 
+});
+
+// Create worker
+export const worker = new Worker('whatsapp-ai', async job => {
+  const { wamid, from, text } = job.data;
+  // Process message...
+}, { 
+  connection: workerConnection,
+  limiter: {
+    max: 10,      // Max 10 jobs processing simultaneously
+    duration: 1000 // Per second
+  }
+});
+```
+
+### Job Processing Flow
+
+<Steps>
+  <Step title="Webhook Receives Message">
+    WhatsApp webhook receives incoming message and immediately returns 200 OK:
+
+    ```javascript backend/whatsapp/webhook.js:89-97
+    await whatsappQueue.add('process-message', {
+      wamid,
+      from: message.from,
+      text: message.text.body,
+      timestamp: message.timestamp
+    }, {
+      jobId: wamid, // Deduplication
+      removeOnComplete: true
+    });
+    ```
+  </Step>
+  <Step title="Worker Processes Job">
+    BullMQ worker picks up the job from Redis and:
+    - Checks session status
+    - Filters PII from message
+    - Calls AI service for response
+    - Sends reply via WhatsApp API
+  </Step>
+  <Step title="Job Completion">
+    Completed jobs are automatically removed from Redis to save memory.
+  </Step>
+</Steps>
+
+### Queue Features
+
+<CardGroup cols={2}>
+  <Card title="Deduplication" icon="clone">
+    Using `jobId: wamid` prevents duplicate processing of the same WhatsApp message
+  </Card>
+  <Card title="Rate Limiting" icon="gauge">
+    Limits processing to 10 concurrent jobs to prevent API rate limits
+  </Card>
+  <Card title="Retry Logic" icon="rotate">
+    Exponential backoff strategy for failed jobs
+  </Card>
+  <Card title="Auto Cleanup" icon="trash">
+    Completed jobs are removed automatically to conserve memory
+  </Card>
+</CardGroup>
+
+## Redis Configuration (Optional)
+
+For production deployments, optimize Redis settings:
+
+### redis.conf Recommendations
+
+```conf /etc/redis/redis.conf
+# Memory Management
+maxmemory 512mb
+maxmemory-policy allkeys-lru
+
+# Persistence (optional for queue data)
+save ""
+appendonly no
+
+# Performance
+tcp-backlog 511
+timeout 0
+tcp-keepalive 300
+
+# Security
+bind 127.0.0.1
+protected-mode yes
+requirepass your-secure-password
+```
+
+<Warning>
+  If you set `requirepass`, add the password to your `REDIS_PASSWORD` or `REDIS_URL` environment variable.
+</Warning>
+
+### Apply Configuration
+
+```bash
+# Restart Redis
+sudo systemctl restart redis-server
+
+# Verify configuration
+redis-cli CONFIG GET maxmemory
+```
+
+## Monitoring
+
+### Check Queue Status
+
+```bash
+# Connect to Redis CLI
+redis-cli
+
+# List all keys (queues)
+KEYS bull:whatsapp-ai:*
+
+# Get queue length
+LLEN bull:whatsapp-ai:wait
+
+# Get failed jobs count
+LLEN bull:whatsapp-ai:failed
+
+# Monitor real-time commands
+MONITOR
+```
+
+### BullMQ Dashboard (Optional)
+
+Install Bull Board for a web UI:
+
+```bash
+npm install @bull-board/express @bull-board/api
+```
+
+```javascript server.mjs
+import { createBullBoard } from '@bull-board/api';
+import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
+import { ExpressAdapter } from '@bull-board/express';
+import { whatsappQueue } from './backend/whatsapp/queue.js';
+
+const serverAdapter = new ExpressAdapter();
+serverAdapter.setBasePath('/admin/queues');
+
+createBullBoard({
+  queues: [new BullMQAdapter(whatsappQueue)],
+  serverAdapter: serverAdapter,
+});
+
+app.use('/admin/queues', serverAdapter.getRouter());
+```
+
+Access at: `http://localhost:3001/admin/queues`
+
+## Testing
+
+<Steps>
+  <Step title="Test Redis Connection">
+    ```bash
+    redis-cli ping
+    # Expected: PONG
+    ```
+  </Step>
+  <Step title="Test From Node.js">
+    ```javascript test-redis.js
+    import IORedis from 'ioredis';
+
+    const redis = new IORedis(process.env.REDIS_URL || {
+      host: process.env.REDIS_HOST || 'localhost',
+      port: process.env.REDIS_PORT || 6379,
+      password: process.env.REDIS_PASSWORD
+    });
+
+    redis.ping().then(result => {
+      console.log('Redis OK:', result);
+      process.exit(0);
+    }).catch(err => {
+      console.error('Redis Error:', err);
+      process.exit(1);
+    });
+    ```
+
+    ```bash
+    node test-redis.js
+    ```
+  </Step>
+  <Step title="Test Queue Processing">
+    Start the server and check worker logs:
+
+    ```bash
+    npm run api:dev
+    ```
+
+    You should see:
+    ```
+    🚀 Initializing WhatsApp AI Worker...
+    🔌 Socket.IO instance injected into Queue Worker
+    ```
+  </Step>
+  <Step title="Simulate Job">
+    Send a test WhatsApp message or use the mock webhook:
+
+    ```bash
+    curl -X POST http://localhost:3001/api/whatsapp/webhook \
+      -H "Content-Type: application/json" \
+      -d '{
+        "object": "whatsapp_business_account",
+        "entry": [{
+          "changes": [{
+            "value": {
+              "messages": [{
+                "id": "test-msg-123",
+                "from": "573001234567",
+                "timestamp": "1234567890",
+                "type": "text",
+                "text": { "body": "Hola" }
+              }]
+            }
+          }]
+        }]
+      }'
+    ```
+  </Step>
+</Steps>
+
+## Production Recommendations
+
+<CardGroup cols={2}>
+  <Card title="Use Cloud Redis" icon="cloud">
+    Services like Upstash, Redis Cloud, or AWS ElastiCache provide managed Redis with automatic backups
+  </Card>
+  <Card title="Enable TLS" icon="lock">
+    Use `rediss://` URLs for encrypted connections in production
+  </Card>
+  <Card title="Set Memory Limits" icon="memory">
+    Configure `maxmemory` and eviction policies to prevent OOM errors
+  </Card>
+  <Card title="Monitor Performance" icon="chart-line">
+    Track queue length, job processing time, and failure rates
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection Refused">
+    If you get `ECONNREFUSED` errors:
+
+    ```bash
+    # Check if Redis is running
+    sudo systemctl status redis-server
+
+    # Check if listening on correct port
+    sudo netstat -plunt | grep 6379
+
+    # Try connecting manually
+    redis-cli ping
+    ```
+
+    If using Docker:
+    ```bash
+    docker ps | grep redis
+    docker logs kaiu-redis
+    ```
+  </Accordion>
+
+  <Accordion title="Authentication Failed">
+    If you get `NOAUTH` or authentication errors:
+
+    ```bash
+    # Check if password is required
+    redis-cli CONFIG GET requirepass
+
+    # Test with password
+    redis-cli -a your-password ping
+    ```
+
+    Update `.env.local`:
+    ```bash
+    REDIS_URL="redis://default:your-password@localhost:6379"
+    # OR
+    REDIS_PASSWORD="your-password"
+    ```
+  </Accordion>
+
+  <Accordion title="Jobs Stuck in Queue">
+    If jobs aren't processing:
+
+    ```bash
+    # Check worker is running
+    # Look for this in server logs:
+    # "🚀 Initializing WhatsApp AI Worker..."
+
+    # Check failed jobs
+    redis-cli LRANGE bull:whatsapp-ai:failed 0 -1
+
+    # Clear stuck jobs (DANGER: data loss)
+    redis-cli DEL bull:whatsapp-ai:wait
+    redis-cli DEL bull:whatsapp-ai:active
+    ```
+  </Accordion>
+
+  <Accordion title="High Memory Usage">
+    If Redis consumes too much memory:
+
+    ```bash
+    # Check memory usage
+    redis-cli INFO memory
+
+    # Set memory limit
+    redis-cli CONFIG SET maxmemory 512mb
+    redis-cli CONFIG SET maxmemory-policy allkeys-lru
+
+    # Flush old data (DANGER)
+    redis-cli FLUSHDB
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="WhatsApp Integration" icon="message" href="/setup/whatsapp-integration">
+    Configure WhatsApp Cloud API to complete the messaging flow
+  </Card>
+  <Card title="Environment Variables" icon="gear" href="/setup/environment-variables">
+    Review all configuration options
+  </Card>
+</CardGroup>

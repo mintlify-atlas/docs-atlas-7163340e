@@ -1,0 +1,490 @@
+---
+title: Knowledge Base Management
+description: How to create, update, and maintain the AI knowledge base with vector embeddings
+---
+
+# Knowledge Base Management
+
+The knowledge base stores company policies, product guides, shipping information, and FAQs that the AI uses to provide accurate responses through the RAG system.
+
+## Database Schema
+
+### KnowledgeBase Model (`schema.prisma:184-196`)
+
+```prisma
+model KnowledgeBase {
+  id        String   @id @default(uuid())
+  content   String   @db.Text
+  metadata  Json?    // { source, id, title, type }
+  
+  // Postgres pgvector support
+  embedding Unsupported("vector(1536)")?
+  
+  createdAt DateTime @default(now())
+  
+  @@map("knowledge_base")
+}
+```
+
+## Content Types
+
+Organize knowledge by type in the `metadata.type` field:
+
+| Type | Description | Example |
+|------|-------------|----------|
+| `Política` | Company policies | Return policy, privacy policy |
+| `Documento` | Internal manuals | Product usage guides, procedures |
+| `FAQ` | Common questions | "¿Manejan contra entrega?" |
+| `Ciudad` | City-specific info | "Envíos a Bogotá: 1-2 días, $12.000" |
+| `Producto` | Product details | Ingredients, benefits, usage |
+
+## Admin API
+
+### Endpoints (`knowledge.js:4-57`)
+
+<CodeGroup>
+```javascript GET /api/admin/knowledge
+// Fetch all knowledge base entries (without embeddings)
+const items = await prisma.$queryRaw`
+    SELECT id, content, metadata, "createdAt" 
+    FROM knowledge_base 
+    ORDER BY "createdAt" DESC
+`;
+```
+
+```javascript POST /api/admin/knowledge
+// Create new knowledge entry
+const { content, title, type } = req.body;
+
+// In production, generate embedding here:
+// const embedding = await generateEmbedding(content);
+
+const newKnowledge = await prisma.knowledgeBase.create({
+    data: {
+        content,
+        metadata: { 
+            title: title || 'Sin Título', 
+            type: type || 'Documento' 
+        }
+        // embedding: embedding // Add in production
+    }
+});
+```
+
+```javascript DELETE /api/admin/knowledge
+// Delete knowledge entry
+const { id } = req.body;
+
+await prisma.knowledgeBase.delete({ 
+    where: { id } 
+});
+```
+</CodeGroup>
+
+## Adding Knowledge
+
+### Via Admin Dashboard
+
+1. Navigate to **Admin** > **Knowledge Base**
+2. Click **Add Document**
+3. Fill in:
+   - **Title**: Short descriptive name
+   - **Type**: Select from dropdown (Política, FAQ, etc.)
+   - **Content**: Full text (supports Markdown)
+4. Click **Save**
+
+### Via API
+
+```bash
+curl -X POST https://yourdomain.com/api/admin/knowledge \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Política de Envíos Bogotá",
+    "type": "Ciudad",
+    "content": "Los envíos a Bogotá tienen un costo de $12.000 y se entregan en 1-2 días hábiles. Zonas cubiertas: Usaquén, Chapinero, Suba, Engativá. Envío gratis en compras superiores a $150.000."
+  }'
+```
+
+### Via Database
+
+For bulk imports, use SQL directly:
+
+```sql
+INSERT INTO knowledge_base (id, content, metadata, "createdAt")
+VALUES (
+    gen_random_uuid(),
+    'Los envíos a Medellín tardan 2-3 días hábiles y cuestan $15.000.',
+    '{"title": "Envíos Medellín", "type": "Ciudad"}',
+    NOW()
+);
+```
+
+## Content Guidelines
+
+### Writing Effective Knowledge
+
+<CardGroup cols={2}>
+  <Card title="Be Specific" icon="bullseye">
+    Include exact prices, timeframes, and conditions
+    
+    ✅ "Envíos a Cali: $14.000, 2-3 días hábiles"
+    
+    ❌ "Envíos rápidos a buen precio"
+  </Card>
+  
+  <Card title="Use Natural Language" icon="comments">
+    Write as if answering a customer directly
+    
+    ✅ "Sí, manejamos contra entrega en Bogotá, Medellín y Cali"
+    
+    ❌ "COD: True. Cities: BOG, MED, CAL"
+  </Card>
+  
+  <Card title="Keep It Focused" icon="crosshairs">
+    One topic per document for better retrieval
+    
+    ✅ Separate docs for each city's shipping info
+    
+    ❌ One doc with all 20 cities mixed together
+  </Card>
+  
+  <Card title="Update Regularly" icon="clock-rotate-left">
+    Review and refresh content monthly
+    
+    ✅ "Última actualización: Marzo 2026"
+    
+    ❌ Outdated prices from 2024
+  </Card>
+</CardGroup>
+
+### Example Documents
+
+<CodeGroup>
+```txt Shipping Policy
+Título: Política de Envíos
+Tipo: Política
+
+Tiempos de Entrega:
+- Bogotá: 1-2 días hábiles ($12.000)
+- Medellín: 2-3 días hábiles ($15.000)
+- Cali: 2-3 días hábiles ($14.000)
+- Otras ciudades principales: 3-5 días hábiles ($18.000)
+
+Envío Gratis:
+Compras superiores a $150.000 tienen envío gratis a cualquier ciudad principal.
+
+Contra Entrega:
+Disponible en Bogotá, Medellín y Cali con recargo de $5.000.
+```
+
+```txt Return Policy
+Título: Política de Devoluciones
+Tipo: Política
+
+Tienes 15 días calendario desde la fecha de recepción para solicitar una devolución.
+
+Condiciones:
+- Producto sin abrir y en su empaque original
+- Incluir factura de compra
+- Costos de envío de devolución a cargo del cliente
+
+Proceso:
+1. Enviar email a soporte@kaiu.co con número de orden
+2. Esperar autorización (1-2 días hábiles)
+3. Enviar producto a nuestra bodega
+4. Reembolso procesado en 5-7 días hábiles
+```
+
+```txt Product FAQ
+Título: FAQ Aceites Esenciales
+Tipo: FAQ
+
+P: ¿Los aceites son 100% puros?
+R: Sí, todos nuestros aceites esenciales son 100% puros y naturales, sin dilución.
+
+P: ¿Cómo se usan?
+R: Añade 3-5 gotas en un difusor de aromas o diluye en aceite portador para aplicación tópica.
+
+P: ¿Tienen fecha de vencimiento?
+R: Los aceites esenciales duran 2-3 años si se almacenan en lugar fresco y oscuro.
+
+P: ¿Son seguros para niños?
+R: Algunos aceites son seguros para niños mayores de 2 años en dilución adecuada. Consulta con un aromaterapeuta.
+```
+
+```txt City Info
+Título: Envíos a Barranquilla
+Tipo: Ciudad
+
+Costo: $16.000
+Tiempo: 3-4 días hábiles
+Transportadora: Coordinadora
+Cobertura: Toda el área metropolitana
+Contra entrega: No disponible
+Envío gratis: En compras sobre $150.000
+```
+</CodeGroup>
+
+## Generating Embeddings
+
+### Production Implementation
+
+When RAG is enabled (not in memory-saving mode), generate embeddings on creation:
+
+```javascript
+import { pipeline } from '@xenova/transformers';
+
+let embeddingPipe = null;
+
+async function getEmbeddingPipe() {
+    if (!embeddingPipe) {
+        embeddingPipe = await pipeline(
+            'feature-extraction',
+            'Xenova/all-MiniLM-L6-v2'
+        );
+    }
+    return embeddingPipe;
+}
+
+async function generateEmbedding(text) {
+    const pipe = await getEmbeddingPipe();
+    const output = await pipe(text, { pooling: 'mean', normalize: true });
+    return Array.from(output.data); // [0.123, -0.456, ...] (1536 dimensions)
+}
+
+// In knowledge.js POST handler:
+const embedding = await generateEmbedding(content);
+
+const newKnowledge = await prisma.knowledgeBase.create({
+    data: {
+        content,
+        metadata: { title, type },
+        embedding: embedding // Store vector
+    }
+});
+```
+
+### Batch Embedding Script
+
+For existing documents without embeddings:
+
+```javascript
+// scripts/generate-embeddings.js
+import { PrismaClient } from '@prisma/client';
+import { generateEmbedding } from '../backend/services/ai/Retriever.js';
+
+const prisma = new PrismaClient();
+
+async function batchGenerateEmbeddings() {
+    const items = await prisma.knowledgeBase.findMany({
+        where: { embedding: null }
+    });
+
+    console.log(`Generating embeddings for ${items.length} documents...`);
+
+    for (const item of items) {
+        console.log(`Processing: ${item.metadata?.title || item.id}`);
+        
+        const embedding = await generateEmbedding(item.content);
+        
+        await prisma.knowledgeBase.update({
+            where: { id: item.id },
+            data: { embedding }
+        });
+        
+        // Rate limiting
+        await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    console.log('✅ Done!');
+}
+
+batchGenerateEmbeddings();
+```
+
+Run with:
+```bash
+node scripts/generate-embeddings.js
+```
+
+## Searching Knowledge
+
+Once embeddings are generated, the AI can search semantically:
+
+```javascript
+import { generateEmbedding } from './Retriever.js';
+
+async function searchKnowledge(query) {
+    const queryEmbedding = await generateEmbedding(query);
+    const embeddingString = `[${queryEmbedding.join(',')}]`;
+    
+    const results = await prisma.$queryRaw`
+        SELECT 
+            id,
+            content,
+            metadata,
+            1 - (embedding <=> ${embeddingString}::vector) AS similarity
+        FROM knowledge_base
+        WHERE embedding IS NOT NULL
+        ORDER BY embedding <=> ${embeddingString}::vector
+        LIMIT 5
+    `;
+    
+    return results.filter(r => r.similarity > 0.7);
+}
+
+// Example usage
+const results = await searchKnowledge("¿Cuánto cuesta enviar a Bogotá?");
+console.log(results);
+// Returns documents about Bogotá shipping with similarity scores
+```
+
+## Updating Knowledge
+
+To update an existing document:
+
+```javascript
+const updatedContent = "Nueva política de envíos: ...";
+const newEmbedding = await generateEmbedding(updatedContent);
+
+await prisma.knowledgeBase.update({
+    where: { id: documentId },
+    data: {
+        content: updatedContent,
+        embedding: newEmbedding, // Regenerate embedding
+        metadata: {
+            ...existingMetadata,
+            lastUpdated: new Date().toISOString()
+        }
+    }
+});
+```
+
+<Warning>
+  Always regenerate embeddings when updating content, or the vector won't match the new text.
+</Warning>
+
+## Metadata Structure
+
+Store structured information in the `metadata` JSON field:
+
+```json
+{
+  "title": "Envíos a Bogotá",
+  "type": "Ciudad",
+  "source": "admin_upload",
+  "author": "admin@kaiu.co",
+  "lastUpdated": "2026-03-04T10:30:00Z",
+  "version": 2,
+  "tags": ["envíos", "bogotá", "logística"],
+  "relatedDocs": ["doc-123", "doc-456"]
+}
+```
+
+Query by metadata:
+
+```javascript
+// Get all shipping policies
+const shippingDocs = await prisma.knowledgeBase.findMany({
+    where: {
+        metadata: {
+            path: ['type'],
+            equals: 'Ciudad'
+        }
+    }
+});
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Version Control" icon="code-branch">
+    Track changes with `version` and `lastUpdated` in metadata
+  </Card>
+  <Card title="Tag Everything" icon="tags">
+    Use tags for easier filtering and organization
+  </Card>
+  <Card title="Avoid Duplication" icon="clone">
+    Search before adding to prevent redundant documents
+  </Card>
+  <Card title="Test Retrieval" icon="magnifying-glass">
+    Verify new docs are returned for relevant queries
+  </Card>
+</CardGroup>
+
+## Monitoring & Analytics
+
+Track knowledge base usage:
+
+```sql
+-- Most common search queries (add logging first)
+SELECT query, COUNT(*) as frequency
+FROM search_logs
+GROUP BY query
+ORDER BY frequency DESC
+LIMIT 20;
+
+-- Documents never retrieved (low relevance)
+SELECT kb.id, kb.metadata->>'title' as title
+FROM knowledge_base kb
+LEFT JOIN retrieval_logs rl ON kb.id = rl.document_id
+WHERE rl.id IS NULL
+AND kb."createdAt" < NOW() - INTERVAL '30 days';
+```
+
+## Bulk Import
+
+Import from CSV:
+
+```javascript
+// scripts/import-csv.js
+import { PrismaClient } from '@prisma/client';
+import fs from 'fs';
+import { parse } from 'csv-parse/sync';
+import { generateEmbedding } from '../backend/services/ai/Retriever.js';
+
+const prisma = new PrismaClient();
+
+async function importCSV(filePath) {
+    const fileContent = fs.readFileSync(filePath, 'utf-8');
+    const records = parse(fileContent, { columns: true });
+
+    for (const record of records) {
+        const embedding = await generateEmbedding(record.content);
+        
+        await prisma.knowledgeBase.create({
+            data: {
+                content: record.content,
+                metadata: {
+                    title: record.title,
+                    type: record.type || 'Documento'
+                },
+                embedding
+            }
+        });
+        
+        console.log(`✅ Imported: ${record.title}`);
+    }
+}
+
+importCSV('./knowledge.csv');
+```
+
+CSV format:
+```csv
+title,type,content
+"Envíos Bogotá","Ciudad","Los envíos a Bogotá cuestan $12.000 y tardan 1-2 días."
+"Política Devoluciones","Política","Tienes 15 días para devolver productos sin abrir."
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="RAG System" icon="database" href="/ai/rag-system">
+    Understand how knowledge is retrieved and used
+  </Card>
+  <Card title="Prompt Engineering" icon="wand-magic-sparkles" href="/ai/prompt-engineering">
+    Optimize how the AI uses retrieved knowledge
+  </Card>
+</CardGroup>

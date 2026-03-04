@@ -1,0 +1,193 @@
+---
+title: Vercel Deployment
+description: Deploy KAIU Natural Living to Vercel
+---
+
+Deploy your KAIU Natural Living platform to Vercel for a fast, scalable, and production-ready deployment.
+
+## Overview
+
+Vercel provides serverless deployment for both the frontend (React + Vite) and backend (Node.js + Express) components of KAIU Natural Living. The platform automatically handles builds, deployments, and scaling.
+
+## Prerequisites
+
+Before deploying to Vercel, ensure you have:
+
+- A Vercel account ([sign up here](https://vercel.com))
+- Your GitHub repository connected to Vercel
+- PostgreSQL database (recommend [Supabase](https://supabase.com))
+- Redis instance (recommend [Upstash](https://upstash.com))
+- All required API keys (see [Environment Setup](/deployment/environment-setup))
+
+## Configuration
+
+The project includes a `vercel.json` configuration file that handles API routing:
+
+```json
+{
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.js" }
+  ],
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60
+    }
+  }
+}
+```
+
+This configuration:
+- Routes all `/api/*` requests to the serverless function
+- Sets a 60-second timeout for API functions (suitable for AI operations)
+
+## Deployment Steps
+
+<Steps>
+  <Step title="Install Vercel CLI (Optional)">
+    Install the Vercel CLI for command-line deployments:
+    
+    ```bash
+    npm install -g vercel
+    ```
+  </Step>
+
+  <Step title="Connect Your Repository">
+    1. Go to [Vercel Dashboard](https://vercel.com/dashboard)
+    2. Click "Add New Project"
+    3. Import your Git repository
+    4. Vercel will automatically detect the Vite configuration
+  </Step>
+
+  <Step title="Configure Build Settings">
+    Vercel should auto-detect these settings, but verify:
+    
+    - **Framework Preset**: Vite
+    - **Build Command**: `npm run build`
+    - **Output Directory**: `dist`
+    - **Install Command**: `npm install`
+  </Step>
+
+  <Step title="Set Environment Variables">
+    Add all required environment variables in the Vercel dashboard:
+    
+    1. Go to Project Settings → Environment Variables
+    2. Add each variable for Production, Preview, and Development environments
+    3. See [Environment Setup](/deployment/environment-setup) for the complete list
+    
+    <Warning>
+    Ensure all sensitive keys (API keys, database URLs) are kept secure and never committed to your repository.
+    </Warning>
+  </Step>
+
+  <Step title="Deploy">
+    Click "Deploy" and Vercel will:
+    
+    1. Install dependencies
+    2. Run the build process
+    3. Deploy to a production URL
+    4. Provide a deployment summary
+    
+    Alternatively, deploy from CLI:
+    
+    ```bash
+    vercel --prod
+    ```
+  </Step>
+
+  <Step title="Initialize Database">
+    After the first deployment, initialize your database:
+    
+    ```bash
+    # Install dependencies locally
+    npm install
+    
+    # Push database schema
+    npx prisma db push
+    
+    # (Optional) Seed initial data
+    npm run seed
+    ```
+    
+    <Info>
+    Make sure your `DATABASE_URL` environment variable points to your production database.
+    </Info>
+  </Step>
+
+  <Step title="Verify Deployment">
+    Test your deployment:
+    
+    1. Visit your Vercel deployment URL
+    2. Check the frontend loads correctly
+    3. Test API endpoints at `/api/*`
+    4. Verify WhatsApp webhook connectivity
+    5. Test AI orchestrator functionality
+  </Step>
+</Steps>
+
+## Continuous Deployment
+
+Vercel automatically deploys:
+
+- **Production**: Commits to your main/master branch
+- **Preview**: Pull requests and other branches
+
+Each deployment gets a unique URL for testing before going live.
+
+## Environment-Specific Builds
+
+The project supports different build modes:
+
+```bash
+# Production build
+npm run build
+
+# Development build (with dev optimizations)
+npm run build:dev
+```
+
+<Warning>
+**Production Considerations**
+
+- **Function Timeout**: The default 60-second timeout is suitable for AI operations, but monitor your function execution times
+- **Cold Starts**: Serverless functions may experience cold starts; consider implementing warming strategies for critical endpoints
+- **Database Connections**: Use connection pooling (Supabase handles this automatically)
+- **Redis Connection**: Ensure your Redis provider (Upstash) supports serverless environments
+- **Rate Limiting**: Implement rate limiting for WhatsApp webhooks and AI endpoints
+- **Monitoring**: Enable Vercel Analytics and set up error tracking
+</Warning>
+
+## Troubleshooting
+
+### Build Failures
+
+If builds fail:
+
+1. Check the build logs in Vercel dashboard
+2. Verify all dependencies are listed in `package.json`
+3. Ensure Node.js version compatibility (v20+)
+4. Check for TypeScript or ESLint errors
+
+### API Routes Not Working
+
+1. Verify `vercel.json` configuration is correct
+2. Check that API functions are in the correct directory
+3. Review function logs in Vercel dashboard
+4. Ensure environment variables are set correctly
+
+### Database Connection Issues
+
+1. Verify `DATABASE_URL` is set correctly
+2. Check database allows connections from Vercel IPs
+3. Ensure `pgvector` extension is enabled
+4. Test connection using Prisma Studio
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Setup" icon="gear" href="/deployment/environment-setup">
+    Complete guide to environment variables
+  </Card>
+  <Card title="Railway Deployment" icon="train" href="/deployment/railway">
+    Alternative deployment option
+  </Card>
+</CardGroup>

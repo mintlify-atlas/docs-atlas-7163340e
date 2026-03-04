@@ -1,0 +1,808 @@
+---
+title: System Architecture
+description: Deep dive into KAIU Natural Living's technical architecture, data models, and integration patterns
+---
+
+## Overview
+
+KAIU Natural Living V.2026 represents a complete migration from a spreadsheet-based system to a robust, scalable SaaS architecture. The platform combines modern web technologies with AI-powered customer service automation.
+
+<img
+  src="/images/architecture-diagram.svg"
+  alt="KAIU Architecture Diagram"
+/>
+
+## Technology Stack
+
+### Frontend Layer
+
+<CodeGroup>
+
+```json package.json
+{
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.1",
+    "@tanstack/react-query": "^5.83.0",
+    "framer-motion": "^12.27.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.19",
+    "@vitejs/plugin-react-swc": "^3.11.0",
+    "tailwindcss": "^3.4.17"
+  }
+}
+```
+
+</CodeGroup>
+
+<CardGroup cols={2}>
+  <Card title="React 18" icon="react">
+    Modern UI with concurrent rendering and automatic batching for optimal performance
+  </Card>
+  <Card title="Vite" icon="bolt">
+    Lightning-fast dev server with hot module replacement (HMR)
+  </Card>
+  <Card title="TailwindCSS" icon="palette">
+    Utility-first CSS framework with custom KAIU design system
+  </Card>
+  <Card title="Radix UI" icon="layer-group">
+    Accessible component primitives for dialogs, dropdowns, and forms
+  </Card>
+</CardGroup>
+
+**Key Frontend Features:**
+- Server-state management with TanStack Query
+- Form validation using React Hook Form + Zod schemas
+- Real-time updates via Socket.IO client
+- PWA support with offline capabilities (vite-plugin-pwa)
+
+### Backend Layer
+
+```javascript server.mjs
+import express from 'express';
+import cors from 'cors';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import apiRoutes from './backend/api/routes.js';
+import { setIO } from './backend/whatsapp/queue.js';
+
+const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST", "PATCH"]
+  }
+});
+
+// Share IO instance with routes and queue workers
+app.set('io', io);
+setIO(io);
+
+const PORT = 3001;
+app.use(cors());
+app.use(express.json());
+
+// API Routes
+app.use('/api', apiRoutes);
+
+httpServer.listen(PORT, () => {
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
+});
+```
+
+<Accordion title="Backend Components">
+
+**Core Services:**
+- `backend/api/routes.js` - RESTful API routing
+- `backend/services/logistics/` - Shipping integrations (Venndelo, Coordinadora)
+- `backend/services/inventory/` - Stock management and reservation
+- `backend/services/ai/` - RAG retriever and LangChain orchestration
+- `backend/services/email.js` - Transactional emails via Resend
+
+**Integration Endpoints:**
+- `backend/wompi/` - Payment gateway webhooks and signature generation
+- `backend/whatsapp/` - Meta Cloud API webhook handlers and queue workers
+- `backend/admin/` - Protected endpoints for dashboard operations
+
+</Accordion>
+
+### Database Layer
+
+<Tabs>
+  <Tab title="PostgreSQL + Prisma">
+    
+    ```prisma schema.prisma
+    generator client {
+      provider = "prisma-client-js"
+      engineType = "library"
+    }
+    
+    datasource db {
+      provider = "postgresql"
+      url      = env("DATABASE_URL")
+    }
+    ```
+    
+    **Why PostgreSQL?**
+    - ACID compliance for transactional integrity
+    - `pgvector` extension for semantic search (RAG embeddings)
+    - JSON columns for flexible metadata storage
+    - Robust indexing and query optimization
+    
+    **Prisma ORM Benefits:**
+    - Type-safe database queries
+    - Automatic migrations
+    - Introspection and schema validation
+    - Connection pooling and query optimization
+    
+  </Tab>
+  
+  <Tab title="Data Models">
+    
+    The schema includes 8 core models:
+    
+    | Model | Purpose | Key Features |
+    |-------|---------|-------------|
+    | `User` | Authentication & authorization | Role-based access (CUSTOMER, ADMIN, WAREHOUSE, SUPPORT) |
+    | `Product` | Catalog management | SKU tracking, stock reservation, logistics dimensions |
+    | `Order` | Transaction records | Immutable snapshots, status tracking, external ID linking |
+    | `OrderItem` | Line items | Price/quantity snapshots for historical accuracy |
+    | `Address` | Customer locations | Reusable addresses with default selection |
+    | `KnowledgeBase` | RAG content | Vector embeddings for semantic search |
+    | `WhatsAppSession` | Conversation state | Bot activation, handover triggers, 24h expiry |
+    
+  </Tab>
+  
+  <Tab title="Vector Search (RAG)">
+    
+    ```prisma
+    model KnowledgeBase {
+      id        String   @id @default(uuid())
+      content   String   @db.Text
+      metadata  Json?    // { source: "product", id: "...", title: "..." }
+      
+      // Postgres pgvector: 1536-dimensional embeddings
+      embedding Unsupported("vector(1536)")
+      
+      createdAt DateTime @default(now())
+      
+      @@map("knowledge_base")
+    }
+    ```
+    
+    Enable pgvector in PostgreSQL:
+    ```sql
+    CREATE EXTENSION IF NOT EXISTS vector;
+    ```
+    
+    <Note>
+      While the schema supports embeddings, the current implementation uses a simplified approach to reduce memory usage on free-tier cloud hosting. Production deployments can enable full RAG with transformer models.
+    </Note>
+    
+  </Tab>
+</Tabs>
+
+### Queue System (BullMQ + Redis)
+
+```javascript backend/whatsapp/queue.js
+import { Queue, Worker } from 'bullmq';
+import IORedis from 'ioredis';
+import { generateSupportResponse } from '../services/ai/Retriever.js';
+
+const queueConnection = new IORedis({
+  host: process.env.REDIS_HOST || 'localhost',
+  port: process.env.REDIS_PORT || 6379,
+  password: process.env.REDIS_PASSWORD,
+  maxRetriesPerRequest: null
+});
+
+export const whatsappQueue = new Queue('whatsapp-ai', { 
+  connection: queueConnection 
+});
+
+export const worker = new Worker('whatsapp-ai', async job => {
+  const { wamid, from, text } = job.data;
+  
+  // Process message with AI
+  const aiResponse = await generateSupportResponse(text, history);
+  
+  // Send reply via WhatsApp API
+  await axios.post(
+    `https://graph.facebook.com/v21.0/${process.env.WHATSAPP_PHONE_ID}/messages`,
+    { messaging_product: "whatsapp", to: from, text: { body: aiResponse.text } },
+    { headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}` } }
+  );
+}, { 
+  connection: queueConnection,
+  limiter: { max: 10, duration: 1000 },
+  settings: { backoffStrategy: 'exponential' }
+});
+```
+
+<AccordionGroup>
+  <Accordion title="Why BullMQ?">
+    - **Reliability**: Job persistence, retries, and failure handling
+    - **Concurrency**: Rate limiting to respect WhatsApp API quotas
+    - **Observability**: Built-in metrics and event listeners
+    - **Scalability**: Horizontal scaling with multiple workers
+  </Accordion>
+  
+  <Accordion title="Job Processing Flow">
+    1. WhatsApp webhook receives message → Enqueues job
+    2. Worker picks up job from Redis queue
+    3. Validates session and bot status
+    4. Checks for handover keywords
+    5. Generates AI response with RAG
+    6. Sends reply via WhatsApp Cloud API
+    7. Emits real-time updates to dashboard via Socket.IO
+    8. Updates session history in PostgreSQL
+  </Accordion>
+</AccordionGroup>
+
+### AI Orchestrator (Anthropic + LangChain)
+
+```javascript backend/services/ai/Retriever.js
+import { ChatAnthropic } from "@langchain/anthropic";
+import { HumanMessage, SystemMessage, ToolMessage, AIMessage } from "@langchain/core/messages";
+
+const chatModel = new ChatAnthropic({
+  modelName: "claude-3-haiku-20240307",
+  temperature: 0.1,
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+const tools = [
+  {
+    name: "searchInventory",
+    description: "Search product catalog for prices, availability, and variants",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Product name or variant to search" }
+      },
+      required: ["query"]
+    }
+  },
+  {
+    name: "searchKnowledgeBase",
+    description: "Search company policies, shipping times, and FAQs",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Policy or information to search" }
+      },
+      required: ["query"]
+    }
+  }
+];
+
+export async function generateSupportResponse(userQuestion, chatHistory = []) {
+  const recentHistory = chatHistory.slice(-4);
+  const messages = [
+    new SystemMessage(AGENT_PROMPT),
+    ...recentHistory.map(m => m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content)),
+    new HumanMessage(userQuestion)
+  ];
+  
+  const modelWithTools = chatModel.bindTools(tools);
+  let aiMessage = await modelWithTools.invoke(messages);
+  
+  // Process tool calls
+  if (aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
+    messages.push(aiMessage);
+    
+    for (const toolCall of aiMessage.tool_calls) {
+      let result;
+      if (toolCall.name === "searchInventory") {
+        result = await executeSearchInventory(toolCall.args.query);
+      } else if (toolCall.name === "searchKnowledgeBase") {
+        result = await executeSearchKnowledgeBase(toolCall.args.query);
+      }
+      
+      messages.push(new ToolMessage({
+        tool_call_id: toolCall.id,
+        content: result,
+        name: toolCall.name
+      }));
+    }
+    
+    // Generate final response with tool results
+    aiMessage = await modelWithTools.invoke(messages);
+  }
+  
+  return { text: aiMessage.content + "\n\n_🤖 Asistente Virtual KAIU_" };
+}
+```
+
+<CardGroup cols={2}>
+  <Card title="Claude 3 Haiku" icon="bolt">
+    Fast, cost-effective model optimized for customer support
+  </Card>
+  <Card title="Native Tools" icon="wrench">
+    Function calling for inventory queries and knowledge retrieval
+  </Card>
+  <Card title="Anti-Hallucination" icon="shield">
+    Strict prompts prevent the AI from inventing product information
+  </Card>
+  <Card title="Context Window" icon="clock">
+    Truncated to last 4 messages to prevent tool hallucinations
+  </Card>
+</CardGroup>
+
+<Warning>
+  **Critical Rule**: The AI MUST use `searchInventory` tool for every product query. It never relies on memory to avoid hallucinating prices or availability.
+</Warning>
+
+### Real-Time Communication (Socket.IO)
+
+```javascript
+// Server-side events
+io.on('connection', (socket) => {
+  console.log('🔌 Dashboard Client Connected:', socket.id);
+  
+  socket.on('join_session', (sessionId) => {
+    socket.join(`session_${sessionId}`);
+  });
+});
+
+// Emit new message to specific session
+io.to(`session_${session.id}`).emit('new_message', { 
+  sessionId: session.id, 
+  message: { role: 'user', content: text, time: "Just now" } 
+});
+
+// Broadcast session updates to all dashboards
+io.emit('session_update', { id: session.id, status: 'handover' });
+```
+
+**Socket.IO Events:**
+
+| Event | Direction | Purpose |
+|-------|-----------|--------|
+| `connection` | Client → Server | Establish WebSocket connection |
+| `join_session` | Client → Server | Subscribe to specific conversation |
+| `new_message` | Server → Client | Real-time message delivery |
+| `session_new` | Server → Client | New WhatsApp conversation started |
+| `session_update` | Server → Client | Bot status or handover change |
+| `chat_list_update` | Server → Client | Refresh conversation sidebar |
+
+## Data Flow Diagrams
+
+### WhatsApp Message Processing
+
+```mermaid
+sequenceDiagram
+    participant C as Customer (WhatsApp)
+    participant W as Webhook Endpoint
+    participant Q as BullMQ Queue
+    participant WK as Worker
+    participant AI as Claude AI
+    participant DB as PostgreSQL
+    participant WA as WhatsApp API
+    participant D as Dashboard (Socket.IO)
+    
+    C->>W: Sends message
+    W->>Q: Enqueue job
+    Q->>WK: Worker picks job
+    WK->>DB: Load session & history
+    WK->>WK: Check handover keywords
+    alt Handover requested
+        WK->>DB: Disable bot
+        WK->>D: Emit handover event
+        WK->>WA: Send transfer message
+    else Normal processing
+        WK->>AI: Generate response with tools
+        AI->>DB: Search inventory/knowledge
+        DB->>AI: Return results
+        AI->>WK: Final response
+        WK->>DB: Save to history
+        WK->>WA: Send reply
+        WK->>D: Emit new message
+    end
+```
+
+### Order Creation Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User (Frontend)
+    participant API as Express API
+    participant DB as PostgreSQL
+    participant L as Logistics Service
+    participant P as Payment Gateway
+    
+    U->>API: POST /api/create-order
+    API->>DB: Reserve stock
+    API->>L: Quote shipping cost
+    L->>API: Return quote
+    API->>DB: Create order (PENDING)
+    
+    alt Payment Method: Wompi
+        API->>P: Generate signature
+        P->>U: Redirect to payment
+        U->>P: Complete payment
+        P->>API: Webhook notification
+        API->>DB: Update to CONFIRMED
+    else Payment Method: COD
+        API->>DB: Keep as PENDING
+        API->>U: Return order details
+    end
+```
+
+## Security & Privacy
+
+<AccordionGroup>
+  <Accordion title="Authentication & Authorization">
+    
+    **JWT-Based Authentication:**
+    ```javascript backend/admin/login.js
+    import bcrypt from 'bcryptjs';
+    import jwt from 'jsonwebtoken';
+    
+    const user = await prisma.user.findUnique({ where: { email } });
+    const valid = await bcrypt.compare(password, user.password);
+    
+    if (valid) {
+      const token = jwt.sign(
+        { userId: user.id, role: user.role }, 
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+      res.json({ token });
+    }
+    ```
+    
+    **Role-Based Access Control:**
+    - `CUSTOMER`: Can place orders and track shipments
+    - `SUPPORT`: Access to WhatsApp dashboard and knowledge base
+    - `WAREHOUSE`: Manage inventory and generate shipping labels
+    - `ADMIN`: Full system access including user management
+    
+  </Accordion>
+  
+  <Accordion title="PII Protection">
+    
+    All chat messages are automatically sanitized before storing in AI context:
+    
+    ```javascript backend/whatsapp/queue.js
+    import { redactPII } from '../utils/pii-filter.js';
+    
+    // Redact emails and phone numbers
+    const cleanText = redactPII(text);
+    const userMsg = { role: 'user', content: cleanText };
+    history.push(userMsg);
+    ```
+    
+    **What is redacted:**
+    - Email addresses → `[EMAIL_REDACTED]`
+    - Phone numbers → `[PHONE_REDACTED]`
+    - Credit card numbers → `[CARD_REDACTED]`
+    
+    <Note>
+      Original messages are still sent to WhatsApp API, but sanitized versions are stored in the database and shown to AI.
+    </Note>
+    
+  </Accordion>
+  
+  <Accordion title="Webhook Security">
+    
+    **WhatsApp Verification:**
+    ```javascript
+    app.get('/api/whatsapp/webhook', (req, res) => {
+      const token = req.query['hub.verify_token'];
+      if (token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN) {
+        res.status(200).send(req.query['hub.challenge']);
+      } else {
+        res.status(403).send('Invalid token');
+      }
+    });
+    ```
+    
+    **Wompi Signature Validation:**
+    ```javascript backend/wompi/webhook.js
+    import crypto from 'crypto';
+    
+    const expectedSignature = crypto
+      .createHash('sha256')
+      .update(req.rawBody.toString() + process.env.WOMPI_EVENT_SECRET)
+      .digest('hex');
+    
+    if (signature !== expectedSignature) {
+      return res.status(401).send('Invalid signature');
+    }
+    ```
+    
+  </Accordion>
+</AccordionGroup>
+
+## Integrations
+
+<Tabs>
+  <Tab title="WhatsApp Cloud API">
+    
+    **Meta Graph API v21.0**
+    
+    ```javascript
+    // Send text message
+    await axios.post(
+      `https://graph.facebook.com/v21.0/${process.env.WHATSAPP_PHONE_ID}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to: phoneNumber,
+        text: { body: messageText }
+      },
+      { headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}` } }
+    );
+    
+    // Send image
+    await axios.post(
+      `https://graph.facebook.com/v21.0/${process.env.WHATSAPP_PHONE_ID}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to: phoneNumber,
+        type: "image",
+        image: { link: imageUrl }
+      },
+      { headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}` } }
+    );
+    ```
+    
+    **Features Used:**
+    - Text and media messaging
+    - Message status callbacks
+    - 24-hour customer service window
+    
+  </Tab>
+  
+  <Tab title="Venndelo Logistics">
+    
+    ```javascript backend/services/logistics/providers/VenndeloCarrier.js
+    class VenndeloCarrier extends BaseCarrier {
+      async quoteShipment({ city, weight, dimensions }) {
+        const response = await axios.post(
+          'https://api.venndelo.com/v1/quote',
+          {
+            origin: process.env.VENNDELO_PICKUP_NAME,
+            destination: city,
+            weight,
+            dimensions
+          },
+          { headers: { 'Authorization': `Bearer ${process.env.VENNDELO_API_KEY}` } }
+        );
+        return { cost: response.data.price, estimatedDays: response.data.days };
+      }
+      
+      async generateLabel(orderId) {
+        // Create shipping label with Venndelo
+      }
+      
+      async requestPickup(orderId) {
+        // Schedule carrier pickup
+      }
+    }
+    ```
+    
+  </Tab>
+  
+  <Tab title="Wompi Payments">
+    
+    ```javascript backend/wompi/sign.js
+    import crypto from 'crypto';
+    
+    // Generate integrity signature for checkout
+    const integrityString = `${reference}${amountInCents}${currency}${WOMPI_INTEGRITY_SECRET}`;
+    const signature = crypto.createHash('sha256').update(integrityString).digest('hex');
+    
+    res.json({
+      publicKey: process.env.WOMPI_PUBLIC_KEY,
+      signature,
+      reference,
+      amountInCents
+    });
+    ```
+    
+    **Webhook Handling:**
+    ```javascript backend/wompi/webhook.js
+    const { event, data } = req.body;
+    
+    if (event === 'transaction.updated') {
+      const transaction = data.transaction;
+      
+      if (transaction.status === 'APPROVED') {
+        await prisma.order.update({
+          where: { externalId: transaction.reference },
+          data: { 
+            status: 'CONFIRMED',
+            paymentMethod: 'WOMPI'
+          }
+        });
+      }
+    }
+    ```
+    
+  </Tab>
+</Tabs>
+
+## Performance Optimizations
+
+<CardGroup cols={2}>
+  <Card title="Database Indexing" icon="database">
+    Indexes on `User.email`, `Product.sku`, `Order.readableId`, and `WhatsAppSession.phoneNumber` for fast lookups
+  </Card>
+  <Card title="Connection Pooling" icon="plug">
+    Prisma manages PostgreSQL connections efficiently with automatic pooling
+  </Card>
+  <Card title="Redis Caching" icon="bolt">
+    BullMQ uses Redis for job queues, which can also cache frequently accessed data
+  </Card>
+  <Card title="Lazy Loading" icon="spinner">
+    AI embedding model and chat client initialized only when first needed
+  </Card>
+</CardGroup>
+
+```javascript backend/services/ai/Retriever.js
+// Singleton pattern for expensive resources
+let chatModel = null;
+
+function getChatModel() {
+  if (!chatModel) {
+    chatModel = new ChatAnthropic({
+      modelName: "claude-3-haiku-20240307",
+      anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+    });
+  }
+  return chatModel;
+}
+```
+
+## Deployment Architecture
+
+<Tabs>
+  <Tab title="Recommended (Cloud)">
+    
+    **Infrastructure:**
+    - **Frontend**: Vercel (Static hosting + Edge CDN)
+    - **Backend**: Railway or Vercel Serverless Functions
+    - **Database**: Supabase (Managed PostgreSQL with pgvector)
+    - **Redis**: Upstash (Serverless Redis)
+    - **Assets**: Cloudinary or S3 for product images
+    
+    **Environment Variables:**
+    ```bash
+    DATABASE_URL="postgresql://user:pass@db.supabase.co:5432/postgres"
+    REDIS_URL="rediss://default:pass@redis.upstash.io:6379"
+    ANTHROPIC_API_KEY="sk-ant-..."
+    WHATSAPP_PHONE_ID="..."
+    WHATSAPP_ACCESS_TOKEN="..."
+    ```
+    
+  </Tab>
+  
+  <Tab title="Self-Hosted (VPS)">
+    
+    **Requirements:**
+    - Ubuntu 22.04 LTS
+    - 2GB RAM minimum (4GB recommended for AI workloads)
+    - Node.js 20+
+    - PM2 for process management
+    - Nginx as reverse proxy
+    
+    **Setup:**
+    ```bash
+    # Install dependencies
+    sudo apt update
+    sudo apt install -y postgresql redis-server nginx
+    
+    # Clone and build
+    git clone https://github.com/your-org/kaiu-natural-living.git
+    cd kaiu-natural-living
+    npm install
+    npm run build
+    
+    # Start with PM2
+    pm2 start server.mjs --name kaiu-api
+    pm2 startup
+    pm2 save
+    ```
+    
+  </Tab>
+</Tabs>
+
+## Project Structure
+
+```
+kaiu-natural-living/
+├── src/                    # Frontend React application
+│   ├── components/        # Reusable UI components
+│   ├── pages/            # Route pages (Home, Checkout, Dashboard)
+│   └── lib/              # Utilities and API clients
+├── backend/               # Express API server
+│   ├── api/              # RESTful routes
+│   ├── whatsapp/         # WhatsApp webhook and queue
+│   ├── services/         # Business logic
+│   │   ├── ai/          # AI orchestrator and RAG
+│   │   ├── logistics/   # Shipping integrations
+│   │   └── inventory/   # Stock management
+│   ├── wompi/           # Payment gateway integration
+│   └── admin/           # Protected admin endpoints
+├── prisma/               # Database schema and migrations
+│   ├── schema.prisma    # Data models
+│   └── seed.ts          # Sample data
+├── server.mjs           # Express + Socket.IO entry point
+└── START_ALL.sh         # Development startup script
+```
+
+## Monitoring & Observability
+
+<AccordionGroup>
+  <Accordion title="Logging">
+    Console logs with structured prefixes:
+    - `🚀` Server startup events
+    - `🔌` Socket.IO connections
+    - `⚙️` BullMQ job processing
+    - `🤖` AI orchestrator actions
+    - `✅` Successful operations
+    - `❌` Error conditions
+    
+    For production, integrate with services like Datadog, Sentry, or LogRocket.
+  </Accordion>
+  
+  <Accordion title="Error Handling">
+    ```javascript
+    worker.on('failed', (job, err) => {
+      console.log(`Job ${job.id} has failed with ${err.message}`);
+      // Send to error tracking service
+    });
+    
+    process.on('SIGTERM', () => {
+      console.log('Shutting down gracefully...');
+      server.close(() => process.exit(0));
+    });
+    ```
+  </Accordion>
+  
+  <Accordion title="Performance Metrics">
+    Track key metrics:
+    - API response times (p50, p95, p99)
+    - BullMQ job processing duration
+    - WhatsApp API success/failure rates
+    - AI token usage and costs
+    - Database query performance
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="API Reference"
+    icon="book"
+    href="/api-reference"
+  >
+    Explore all available endpoints and request/response schemas
+  </Card>
+  <Card
+    title="AI Orchestrator Guide"
+    icon="brain"
+    href="/ai-orchestrator"
+  >
+    Learn how to customize the chatbot and add new tools
+  </Card>
+  <Card
+    title="Database Schema"
+    icon="table"
+    href="/database-schema"
+  >
+    Deep dive into all data models and relationships
+  </Card>
+  <Card
+    title="Deployment Guide"
+    icon="cloud"
+    href="/deployment"
+  >
+    Production deployment best practices
+  </Card>
+</CardGroup>

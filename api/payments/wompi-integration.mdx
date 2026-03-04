@@ -1,0 +1,257 @@
+---
+title: 'Wompi Payment Gateway'
+description: 'Integrate Wompi payment processing with signature generation and verification'
+---
+
+## Overview
+
+KAIU uses **Wompi** as its payment gateway for processing credit card payments in Colombia. The integration includes signature generation for checkout and webhook verification for transaction updates.
+
+**Provider:** [Wompi](https://wompi.com) (Bancolombia)
+
+## Signature Generation
+
+Wompi requires an integrity signature for all payment transactions to prevent tampering.
+
+**Endpoint:** `POST /api/wompi/sign`
+
+### Request
+
+<ParamField body="reference" type="string" required>
+  Unique transaction reference (e.g., `KAIU-12345`)
+</ParamField>
+
+<ParamField body="amount" type="number" required>
+  Transaction amount in cents (e.g., `50000` for $500.00 COP)
+</ParamField>
+
+<ParamField body="currency" type="string" required>
+  Currency code (always `COP` for Colombian Pesos)
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X POST https://api.kaiunaturalliving.com/api/wompi/sign \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reference": "KAIU-12345",
+    "amount": 50000,
+    "currency": "COP"
+  }'
+```
+
+### Response
+
+<ResponseField name="signature" type="string">
+  HMAC-SHA256 signature for the transaction
+</ResponseField>
+
+<ResponseField name="reference" type="string">
+  Echoed transaction reference
+</ResponseField>
+
+<ResponseField name="hashString" type="string">
+  Raw hash string (development only)
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "signature": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "reference": "KAIU-12345"
+}
+```
+
+### Implementation
+
+```javascript sign.js:19-44
+const { reference, amount, currency } = req.body;
+const integritySecret = process.env.WOMPI_INTEGRITY_SECRET;
+
+// Validation
+if (!reference || !amount || !currency) {
+    return res.status(400).json({ error: 'Faltan parámetros (reference, amount, currency)' });
+}
+
+if (!integritySecret || integritySecret.includes('XXXXXX')) {
+     console.error("Wompi Integrity Secret no configurado");
+     return res.status(500).json({ error: 'Configuración de servidor incompleta (Llaves Faltantes)' });
+}
+
+// Formula: SHA256(Reference + AmountInCents + Currency + Secret)
+const rawString = `${reference}${amount}${currency}${integritySecret}`;
+const signature = crypto.createHash('sha256').update(rawString).digest('hex');
+
+return res.status(200).json({ 
+    signature,
+    reference,
+    hashString: process.env.NODE_ENV === 'development' ? rawString : undefined
+});
+```
+
+### Signature Formula
+
+```
+HMAC-SHA256(reference + amountInCents + currency + integritySecret)
+```
+
+<Warning>
+  The signature **must be generated server-side** to keep the `WOMPI_INTEGRITY_SECRET` secure. Never expose this secret to the client.
+</Warning>
+
+## Frontend Integration
+
+### Checkout Widget
+
+Embed Wompi's checkout widget on your frontend:
+
+```html
+<script src="https://checkout.wompi.co/widget.js"></script>
+
+<script>
+  // 1. Get signature from your backend
+  const response = await fetch('/api/wompi/sign', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      reference: 'KAIU-12345',
+      amount: 50000,
+      currency: 'COP'
+    })
+  });
+  
+  const { signature } = await response.json();
+  
+  // 2. Initialize Wompi widget
+  const checkout = new WidgetCheckout({
+    currency: 'COP',
+    amountInCents: 50000,
+    reference: 'KAIU-12345',
+    publicKey: 'pub_prod_...',
+    signature: signature,
+    redirectUrl: 'https://kaiunaturalliving.com/order-confirmation'
+  });
+  
+  checkout.open(function(result) {
+    if (result.transaction.status === 'APPROVED') {
+      window.location.href = result.redirectUrl;
+    }
+  });
+</script>
+```
+
+### Reference Format
+
+References follow the pattern `KAIU-{orderId}`:
+
+```javascript webhook.js:64-65
+const pinStr = reference.split('-')[1]; // KAIU-12345 -> 12345
+const pin = parseInt(pinStr, 10);
+```
+
+## Transaction States
+
+Wompi transactions can have the following states:
+
+| Status | Description | Action |
+|--------|-------------|--------|
+| `PENDING` | Payment initiated but not completed | Wait for webhook |
+| `APPROVED` | Payment successful | Confirm order |
+| `DECLINED` | Payment rejected by bank | Cancel order, release inventory |
+| `VOIDED` | Payment voided by user/system | Cancel order, release inventory |
+| `ERROR` | Processing error occurred | Cancel order, release inventory |
+
+## Error Handling
+
+### Validation Errors
+
+```json
+{
+  "error": "Faltan parámetros (reference, amount, currency)"
+}
+```
+
+**Status:** `400 Bad Request`
+
+### Configuration Errors
+
+```json
+{
+  "error": "Configuración de servidor incompleta (Llaves Faltantes)"
+}
+```
+
+**Status:** `500 Internal Server Error`
+
+## Environment Variables
+
+<ParamField path="WOMPI_INTEGRITY_SECRET" type="string" required>
+  Secret key from Wompi for signature generation and verification
+</ParamField>
+
+<ParamField path="WOMPI_PUBLIC_KEY" type="string" required>
+  Public key for frontend widget initialization
+</ParamField>
+
+<Warning>
+  Use **production keys** (`prod_integrity_...`) in production and **test keys** (`test_integrity_...`) in development.
+</Warning>
+
+## Testing
+
+### Test Cards
+
+Wompi provides test cards for sandbox testing:
+
+| Card Number | Type | Result |
+|-------------|------|--------|
+| `4242 4242 4242 4242` | Visa | Approved |
+| `4000 0000 0000 0002` | Visa | Declined |
+| `5555 5555 5555 4444` | Mastercard | Approved |
+
+**CVV:** Any 3 digits  
+**Expiry:** Any future date
+
+### Test Webhook
+
+Trigger a test webhook from Wompi dashboard:
+
+```bash
+curl -X POST https://api.kaiunaturalliving.com/api/wompi/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "data": {
+      "transaction": {
+        "id": "12345-1677649200-test",
+        "reference": "KAIU-12345",
+        "amount_in_cents": 50000,
+        "status": "APPROVED"
+      }
+    },
+    "signature": {
+      "checksum": "..."
+    },
+    "timestamp": 1677649200
+  }'
+```
+
+## Security Best Practices
+
+1. **Never expose `WOMPI_INTEGRITY_SECRET`** in client-side code
+2. **Always generate signatures server-side**
+3. **Validate all webhook signatures** (see [Payment Webhooks](/api/payments/webhooks))
+4. **Use HTTPS** for all API endpoints
+5. **Implement rate limiting** on signature endpoint to prevent abuse
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Payment Webhooks" icon="webhook" href="/api/payments/webhooks">
+    Learn how to handle transaction updates
+  </Card>
+  <Card title="Wompi Documentation" icon="book" href="https://docs.wompi.co">
+    Official Wompi API documentation
+  </Card>
+</CardGroup>

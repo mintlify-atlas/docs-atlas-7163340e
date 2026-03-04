@@ -1,0 +1,157 @@
+---
+title: 'Authentication'
+description: 'JWT-based authentication for admin endpoints'
+---
+
+## Overview
+
+KAIU uses JWT (JSON Web Tokens) for authenticating admin users. Public endpoints (products, orders, tracking) do not require authentication, but admin endpoints require a valid JWT token.
+
+## Login Endpoint
+
+<Note>
+Authentication is only required for admin dashboard endpoints (`/api/admin/*`). Public-facing endpoints do not require authentication.
+</Note>
+
+### POST /api/admin/login
+
+Authenticates a user and returns a JWT token.
+
+**Request Body**
+
+<ParamField body="username" type="string" required>
+  User's email address (used as username)
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  User's password (hashed with bcrypt)
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean">
+  Indicates if login was successful
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  JWT token valid for 24 hours
+</ResponseField>
+
+<ResponseField name="user" type="object">
+  User information
+  
+  <ResponseField name="user.username" type="string">
+    User's email
+  </ResponseField>
+  
+  <ResponseField name="user.role" type="string">
+    User role: `ADMIN`, `WAREHOUSE`, `SUPPORT`, or `CUSTOMER`
+  </ResponseField>
+  
+  <ResponseField name="user.name" type="string">
+    User's full name
+  </ResponseField>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:3001/api/admin/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin@kaiu.com",
+    "password": "your_password"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "username": "admin@kaiu.com",
+    "role": "ADMIN",
+    "name": "Admin User"
+  }
+}
+```
+
+## Using JWT Tokens
+
+Once authenticated, include the JWT token in the `Authorization` header for subsequent requests to admin endpoints:
+
+```bash
+curl http://localhost:3001/api/admin/orders \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+## JWT Token Structure
+
+The JWT token contains the following claims:
+
+```json
+{
+  "userId": "user-uuid",
+  "role": "ADMIN",
+  "email": "admin@kaiu.com",
+  "exp": 1234567890
+}
+```
+
+## Token Expiration
+
+Tokens expire after **24 hours**. After expiration, users must log in again to obtain a new token.
+
+## Security Configuration
+
+The JWT secret is configured via the `JWT_SECRET` environment variable. The API uses bcrypt for password hashing with automatic salt generation.
+
+<Warning>
+In production, ensure `JWT_SECRET` is set to a strong, random value and never exposed in client-side code.
+</Warning>
+
+## Role-Based Access Control
+
+The API supports the following user roles:
+
+| Role | Access Level |
+|------|-------------|
+| `ADMIN` | Full access to all admin endpoints |
+| `WAREHOUSE` | Access to inventory and fulfillment endpoints |
+| `SUPPORT` | Access to order viewing and customer support endpoints |
+| `CUSTOMER` | No admin access (public endpoints only) |
+
+## Error Responses
+
+### 400 Bad Request
+
+```json
+{
+  "error": "Faltan credenciales"
+}
+```
+
+### 401 Unauthorized
+
+```json
+{
+  "error": "Credenciales inválidas"
+}
+```
+
+### 500 Internal Server Error
+
+```json
+{
+  "error": "Error en servidor"
+}
+```
+
+## Security Features
+
+- **Password hashing**: bcrypt with automatic salt generation
+- **Timing attack protection**: 1-second delay on failed login attempts
+- **Case-insensitive email**: Emails are normalized to lowercase
+- **Token expiration**: 24-hour token lifetime

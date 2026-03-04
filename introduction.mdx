@@ -1,0 +1,272 @@
+---
+title: Welcome to KAIU Natural Living
+description: Modern e-commerce platform powered by AI-driven WhatsApp chatbot for natural living products
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="KAIU Natural Living Hero Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="KAIU Natural Living Hero Dark"
+/>
+
+## What is KAIU Natural Living?
+
+KAIU Natural Living is a modern SaaS e-commerce platform that combines the power of React, Node.js, and PostgreSQL with an intelligent AI orchestrator for WhatsApp customer service. The platform enables seamless product management, order processing, and customer engagement through automated AI responses and human handover capabilities.
+
+<CardGroup cols={2}>
+  <Card
+    title="Quickstart Guide"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Get your first order placed in under 5 minutes
+  </Card>
+  <Card
+    title="Architecture Overview"
+    icon="sitemap"
+    href="/architecture"
+  >
+    Understand the tech stack and system design
+  </Card>
+  <Card
+    title="AI Orchestrator"
+    icon="robot"
+    href="/ai-orchestrator"
+  >
+    Learn how the WhatsApp AI chatbot works
+  </Card>
+  <Card
+    title="API Reference"
+    icon="code"
+    href="/api-reference"
+  >
+    Explore the REST API endpoints
+  </Card>
+</CardGroup>
+
+## Key Features
+
+### AI-Powered WhatsApp Integration
+
+The platform features an intelligent AI orchestrator built on Anthropic Claude 3.5 Sonnet and LangChain that handles customer inquiries through WhatsApp automatically.
+
+<CodeGroup>
+
+```javascript AI Response Generation
+// From backend/services/ai/Retriever.js
+export async function generateSupportResponse(userQuestion, chatHistory = []) {
+  const recentHistory = chatHistory.slice(-4);
+  const chatLog = recentHistory.map(m => {
+    const cleanContent = m.content.replace(/\n\n_🤖 Asistente Virtual KAIU_$/g, '');
+    return m.role === 'user' ? new HumanMessage(cleanContent) : new AIMessage(cleanContent);
+  });
+
+  const modelWithTools = getChatModel().bindTools(tools);
+  let aiMessage = await modelWithTools.invoke(messages);
+  
+  // Process tool calls for inventory search and knowledge base
+  if (aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
+    for (const toolCall of aiMessage.tool_calls) {
+      if (toolCall.name === "searchInventory") {
+        toolResultStr = await executeSearchInventory(toolCall.args.query);
+      }
+    }
+  }
+  
+  return { text: aiMessage.content + "\n\n_🤖 Asistente Virtual KAIU_" };
+}
+```
+
+```javascript WhatsApp Queue Worker
+// From backend/whatsapp/queue.js
+export const worker = new Worker('whatsapp-ai', async job => {
+  const { wamid, from, text } = job.data;
+  
+  // Check if bot is active for this session
+  let session = await prisma.whatsAppSession.findUnique({ 
+    where: { phoneNumber: from } 
+  });
+  
+  if (!session.isBotActive) {
+    console.log(`Bot inactive for ${from}. Skipping.`);
+    return;
+  }
+  
+  // Generate AI response with RAG
+  const aiResponse = await generateSupportResponse(text, history);
+  
+  // Send via WhatsApp Cloud API
+  await axios.post(
+    `https://graph.facebook.com/v21.0/${process.env.WHATSAPP_PHONE_ID}/messages`,
+    {
+      messaging_product: "whatsapp",
+      to: from,
+      text: { body: finalText }
+    }
+  );
+}, { connection: workerConnection });
+```
+
+</CodeGroup>
+
+<Note>
+  The AI orchestrator automatically handles product inquiries, inventory searches, and can seamlessly hand over to human agents when requested.
+</Note>
+
+### Real-Time Dashboard with Socket.IO
+
+Monitor and manage WhatsApp conversations in real-time through the admin dashboard.
+
+```javascript server.mjs
+// Socket.IO Events
+io.on('connection', (socket) => {
+  console.log('🔌 Dashboard Client Connected:', socket.id);
+
+  socket.on('join_session', (sessionId) => {
+    socket.join(`session_${sessionId}`);
+  });
+});
+
+// Emit new messages to dashboard
+io.to(`session_${session.id}`).emit('new_message', { 
+  sessionId: session.id, 
+  message: { role: 'user', content: text, time: "Just now" } 
+});
+```
+
+### Complete E-Commerce Workflow
+
+<Steps>
+  <Step title="Product Management">
+    Manage your product catalog with SKU tracking, inventory control, and multimedia support
+  </Step>
+  <Step title="Order Processing">
+    Handle orders from creation through delivery with multiple payment methods (COD, Wompi, Transfer)
+  </Step>
+  <Step title="Logistics Integration">
+    Automated shipping quote generation and label creation with Venndelo and other carriers
+  </Step>
+  <Step title="Customer Communication">
+    AI-powered WhatsApp responses with automatic handover to human agents
+  </Step>
+</Steps>
+
+## Platform Capabilities
+
+<AccordionGroup>
+  <Accordion title="Multi-Role User Management">
+    The platform supports four distinct user roles:
+    
+    - **CUSTOMER**: End users who place orders
+    - **ADMIN**: Business owner with full access
+    - **WAREHOUSE**: Logistics staff managing inventory and shipments
+    - **SUPPORT**: Agents handling WhatsApp chats and knowledge base
+    
+    ```prisma schema.prisma
+    enum Role {
+      CUSTOMER
+      ADMIN
+      WAREHOUSE
+      SUPPORT
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Inventory & Stock Control">
+    Real-time inventory management with reserved stock tracking:
+    
+    ```prisma
+    model Product {
+      stock         Int     @default(0) 
+      stockReserved Int     @default(0)
+      isActive      Boolean @default(true)
+      
+      // Logistics dimensions for shipping quotes
+      weight        Float   @default(0.2)
+      width         Float   @default(10)
+      height        Float   @default(10)
+      length        Float   @default(10)
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Order Status Tracking">
+    Comprehensive order lifecycle management:
+    
+    - PENDING → CONFIRMED → PROCESSING → READY_TO_SHIP
+    - PICKUP_REQUESTED → SHIPPED → DELIVERED
+    - Alternative flows: CANCELLED, RETURNED
+    
+    Each order maintains snapshots of customer information and shipping addresses for historical accuracy.
+  </Accordion>
+  
+  <Accordion title="RAG-Powered Knowledge Base">
+    Vector-based semantic search using PostgreSQL pgvector extension:
+    
+    ```prisma
+    model KnowledgeBase {
+      id        String   @id @default(uuid())
+      content   String   @db.Text
+      metadata  Json?
+      embedding Unsupported("vector(1536)")
+    }
+    ```
+    
+    The AI can search company policies, shipping times, and product information to provide accurate responses.
+  </Accordion>
+</AccordionGroup>
+
+## Privacy & Compliance
+
+<Warning>
+  All customer conversations automatically filter PII (Personally Identifiable Information) before storing in AI context windows. Emails and phone numbers are redacted in chat history for privacy protection.
+</Warning>
+
+```javascript backend/whatsapp/queue.js
+import { redactPII } from '../utils/pii-filter.js';
+
+// Redact PII before storing in history
+const cleanText = redactPII(text);
+const userMsg = { role: 'user', content: cleanText };
+history.push(userMsg);
+```
+
+## Technology Stack
+
+<CardGroup cols={3}>
+  <Card title="Frontend" icon="react">
+    React 18 + Vite + TailwindCSS
+  </Card>
+  <Card title="Backend" icon="node">
+    Node.js + Express + Socket.IO
+  </Card>
+  <Card title="Database" icon="database">
+    PostgreSQL + Prisma ORM
+  </Card>
+  <Card title="Queue System" icon="list">
+    BullMQ + Redis
+  </Card>
+  <Card title="AI Engine" icon="brain">
+    Anthropic Claude + LangChain
+  </Card>
+  <Card title="Messaging" icon="message">
+    WhatsApp Cloud API
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+Ready to get started? Follow our quickstart guide to set up your development environment and place your first order.
+
+<Card
+  title="Continue to Quickstart"
+  icon="arrow-right"
+  href="/quickstart"
+>
+  Set up KAIU Natural Living in 5 minutes
+</Card>

@@ -1,0 +1,336 @@
+---
+title: Prisma Schema Documentation
+description: Complete reference for all database models and relationships
+---
+
+## Overview
+
+The KAIU Natural Living database uses PostgreSQL with Prisma ORM. The schema includes models for users, products, orders, AI knowledge base, and WhatsApp orchestration.
+
+## Database Configuration
+
+```prisma
+generator client {
+  provider = "prisma-client-js"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+```
+
+## User Management
+
+### User Model
+
+Central user model supporting customers, admins, warehouse staff, and support agents.
+
+```prisma
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String   // Bcrypt hash
+  name      String?
+  role      Role     @default(CUSTOMER)
+  
+  // WhatsApp Integration
+  bsuid     String?  @unique // Business-Scoped User ID
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders            Order[]
+  addresses         Address[]
+  whatsappSession   WhatsAppSession?
+}
+```
+
+**Key Fields:**
+- `id` - UUID primary key
+- `email` - Unique identifier for login
+- `password` - Bcrypt hashed password
+- `role` - User permission level (see Role enum)
+- `bsuid` - WhatsApp Business-Scoped User ID for integration
+
+### Role Enum
+
+Defines access levels throughout the system.
+
+```prisma
+enum Role {
+  CUSTOMER  // End customers
+  ADMIN     // Full system access
+  WAREHOUSE // Logistics, shipping, inventory
+  SUPPORT   // Customer support, WhatsApp chats, RAG
+}
+```
+
+**Role Permissions:**
+- `CUSTOMER` - Browse products, create orders, track shipments
+- `ADMIN` - Full dashboard access, manage all resources
+- `WAREHOUSE` - Inventory management, order fulfillment, shipping
+- `SUPPORT` - Handle customer inquiries, manage AI knowledge base
+
+## Product & Inventory
+
+### Product Model
+
+Core product information with stock control and logistics data.
+
+```prisma
+model Product {
+  id          String   @id @default(uuid())
+  sku         String   @unique // e.g., ACE-LAV-10ML
+  name        String
+  slug        String   @unique // URL-friendly (e.g., aceite-lavanda)
+  description String?  @db.Text
+  variantName String?  // e.g., "Gotero 10ml"
+  benefits    String?  @db.Text // Comma-separated
+  price       Int      // In cents (COP)
+  
+  // Stock Control
+  stock         Int     @default(0)
+  stockReserved Int     @default(0) // Reserved during checkout
+  isActive      Boolean @default(true)
+
+  // Multimedia
+  images      String[] // Array of image URLs
+
+  // Logistics (required for shipping quotes)
+  weight      Float    @default(0.2) // Kg
+  width       Float    @default(10)  // cm
+  height      Float    @default(10)  // cm
+  length      Float    @default(10)  // cm
+  
+  category    String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orderItems  OrderItem[]
+}
+```
+
+**Key Concepts:**
+- `sku` - Unique product identifier
+- `slug` - SEO-friendly URL path
+- `price` - Stored in smallest currency unit (centavos)
+- `stockReserved` - Prevents overselling during checkout process
+- Logistics fields (`weight`, `width`, `height`, `length`) required for shipping quotes
+
+## Orders & Logistics
+
+### Order Model
+
+Complete order lifecycle from creation to delivery.
+
+```prisma
+model Order {
+  id              String        @id @default(uuid())
+  readableId      Int           @default(autoincrement()) // e.g., #1024
+  
+  externalId      String?       @unique // Venndelo or Wompi reference
+  
+  status          OrderStatus   @default(PENDING)
+  paymentMethod   PaymentMethod @default(COD)
+  
+  // Price snapshot at purchase time
+  subtotal        Int
+  shippingCost    Int
+  total           Int
+  
+  // Customer (can be guest or registered user)
+  userId          String?
+  user            User?         @relation(fields: [userId], references: [id])
+  customerName    String
+  customerEmail   String
+  customerPhone   String
+  customerId      String?       // National ID (required for logistics)
+  notes           String?       // Delivery instructions
+
+  // Address snapshots (immutable for historical accuracy)
+  shippingAddress Json
+  billingAddress  Json?
+
+  // Logistics
+  carrier         String?       // "Coordinadora", "Envia", "Venndelo"
+  trackingNumber  String?
+  trackingUrl     String?
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  items           OrderItem[]
+}
+```
+
+**Important Details:**
+- `readableId` - Human-friendly order number shown to customers
+- `externalId` - Links to external systems (payment gateway, logistics)
+- Addresses stored as JSON for immutability (prevents data loss if customer updates address)
+- `customerId` (national ID) required by most Colombian logistics providers
+
+### OrderStatus Enum
+
+```prisma
+enum OrderStatus {
+  PENDING             // Created, awaiting payment/confirmation
+  CONFIRMED           // Payment received or manually confirmed (COD)
+  PROCESSING          // Warehouse preparation
+  READY_TO_SHIP       // Shipping label generated
+  PICKUP_REQUESTED    // Pickup scheduled with carrier
+  SHIPPED             // Package with carrier
+  DELIVERED           // Delivered to customer
+  CANCELLED           // Order cancelled
+  RETURNED            // Return processed
+}
+```
+
+### PaymentMethod Enum
+
+```prisma
+enum PaymentMethod {
+  COD               // Cash on Delivery (Contra Entrega)
+  WOMPI             // Wompi payment gateway
+  TRANSFER          // Direct bank transfer
+}
+```
+
+### OrderItem Model
+
+Line items with price snapshots.
+
+```prisma
+model OrderItem {
+  id        String  @id @default(uuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id])
+  
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  
+  // Snapshots (immutable after purchase)
+  sku       String
+  name      String
+  price     Int     // Unit price at purchase time
+  quantity  Int
+}
+```
+
+**Why Snapshots?** Product names and prices may change over time. Storing snapshots ensures order history remains accurate.
+
+## Auxiliary Models
+
+### Address Model
+
+Saved customer addresses for faster checkout.
+
+```prisma
+model Address {
+  id        String  @id @default(uuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id])
+  
+  address   String
+  city      String
+  depto     String  // Department (state)
+  phone     String
+  isDefault Boolean @default(false)
+}
+```
+
+## AI & Knowledge Base
+
+### KnowledgeBase Model
+
+RAG (Retrieval-Augmented Generation) knowledge base with vector embeddings.
+
+```prisma
+model KnowledgeBase {
+  id        String   @id @default(uuid())
+  content   String   @db.Text
+  metadata  Json?    // { source: "product", id: "...", title: "..." }
+  
+  // Vector embeddings for semantic search
+  // Requires: CREATE EXTENSION IF NOT EXISTS vector;
+  embedding Unsupported("vector(1536)")
+  
+  createdAt DateTime @default(now())
+}
+```
+
+**Usage:**
+- Stores product information, FAQs, and support content
+- `embedding` field uses PostgreSQL `pgvector` extension (1536 dimensions for OpenAI embeddings)
+- `metadata` tracks source and reference information
+- Powers AI chatbot responses with semantic search
+
+## WhatsApp Orchestrator
+
+### WhatsAppSession Model
+
+Manages conversation state and AI handover.
+
+```prisma
+model WhatsAppSession {
+  id              String   @id @default(uuid())
+  phoneNumber     String   @unique
+  isBotActive     Boolean  @default(true)
+  sessionContext  Json?    // Temporary conversation context
+  handoverTrigger String?  // Reason for human escalation
+  expiresAt       DateTime // Meta's 24h/72h messaging window
+  
+  // Optional link to registered user
+  userId          String?  @unique
+  user            User?    @relation(fields: [userId], references: [id])
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+```
+
+**Key Features:**
+- `isBotActive` - Controls AI auto-response (false when escalated to human)
+- `sessionContext` - Stores conversation state, cart data, etc.
+- `handoverTrigger` - Logs reason for AI → human handover
+- `expiresAt` - Tracks WhatsApp messaging window limits
+
+## Database Setup
+
+### Initial Migration
+
+```bash
+npx prisma db push
+```
+
+### Generate Prisma Client
+
+```bash
+npx prisma generate
+```
+
+### Enable pgvector Extension
+
+Run in your PostgreSQL database:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+## Prisma Studio
+
+Browse and edit data visually:
+
+```bash
+npx prisma studio
+```
+
+Opens at `http://localhost:5555`
+
+## Next Steps
+
+- Learn about [Database Migrations](/development/migrations)
+- Explore [Database Seeding](/development/seeding)
+- Review [API Reference](/api/introduction)

@@ -1,0 +1,237 @@
+---
+title: Installation
+description: Step-by-step guide to install KAIU Natural Living on your local machine
+---
+
+## Prerequisites
+
+Before installing KAIU Natural Living, ensure you have the following software installed:
+
+<Warning>
+  Make sure all prerequisite versions match the requirements below to avoid compatibility issues.
+</Warning>
+
+- **Node.js**: v20 or higher
+- **PostgreSQL**: v14+ with pgvector extension enabled
+- **Redis Server**: v6+ (local or remote)
+- **Git**: For cloning the repository
+
+### Verify Prerequisites
+
+Check your installed versions:
+
+```bash
+node --version  # Should be v20.x.x or higher
+psql --version  # PostgreSQL 14 or higher
+redis-server --version  # Redis 6 or higher
+```
+
+## Installation Steps
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the KAIU Natural Living repository to your local machine:
+
+    ```bash
+    git clone https://github.com/your-org/kaiu-natural-living.git
+    cd kaiu-natural-living
+    ```
+  </Step>
+
+  <Step title="Install Dependencies">
+    Install all required Node.js packages using npm:
+
+    ```bash
+    npm install
+    ```
+
+    This will install all dependencies listed in `package.json`, including:
+    - Frontend libraries (React, Vite, TailwindCSS)
+    - Backend frameworks (Express, Prisma)
+    - AI/ML packages (LangChain, Anthropic)
+    - Queue management (BullMQ, Redis)
+    - Payment integration (Wompi)
+  </Step>
+
+  <Step title="Configure Environment Variables">
+    Create environment configuration files:
+
+    ```bash
+    # Create .env.local for application config
+    touch .env.local
+
+    # Create prisma/.env for database config
+    mkdir -p prisma
+    touch prisma/.env
+    ```
+
+    <Info>
+      See the [Environment Variables](/setup/environment-variables) page for complete configuration details.
+    </Info>
+
+    At minimum, add the following to `.env.local`:
+
+    ```bash
+    # Database
+    DATABASE_URL="postgresql://user:password@localhost:5432/kaiu_db"
+
+    # Redis
+    REDIS_HOST="localhost"
+    REDIS_PORT="6379"
+
+    # AI
+    ANTHROPIC_API_KEY="your-anthropic-api-key"
+    ```
+  </Step>
+
+  <Step title="Set Up the Database">
+    Initialize the PostgreSQL database with Prisma:
+
+    ```bash
+    # Push schema to database
+    npx prisma db push
+
+    # (Optional) Seed initial data
+    npm run seed
+    ```
+
+    <Warning>
+      Make sure PostgreSQL is running and the `DATABASE_URL` is correctly configured before running these commands.
+    </Warning>
+
+    The seed command will populate your database with:
+    - Sample products and inventory
+    - Admin user accounts
+    - Knowledge base entries for RAG
+  </Step>
+
+  <Step title="Start the Development Environment">
+    KAIU includes a magic script to start all services simultaneously:
+
+    ```bash
+    ./START_ALL.sh
+    ```
+
+    This script will:
+    - Start Redis server
+    - Launch the backend API on port 3001
+    - Start the Vite development server for the frontend
+    - Initialize BullMQ workers for WhatsApp queue processing
+
+    Alternatively, you can start services individually:
+
+    ```bash
+    # Terminal 1: Start Redis (if not using system service)
+    redis-server
+
+    # Terminal 2: Start Backend API
+    npm run api:dev
+
+    # Terminal 3: Start Frontend
+    npm run dev
+    ```
+  </Step>
+
+  <Step title="Verify Installation">
+    Once all services are running, verify the installation:
+
+    - **Frontend**: Open [http://localhost:5173](http://localhost:5173)
+    - **API**: Test with `curl http://localhost:3001/api/products`
+    - **Dashboard**: Navigate to [http://localhost:5173/dashboard](http://localhost:5173/dashboard)
+
+    You should see:
+    ```bash
+    🚀 Servidor API + Socket.IO corriendo en http://localhost:3001
+    📡 WebSocket listo para conexión.
+    ```
+  </Step>
+</Steps>
+
+## Post-Installation
+
+### Create Admin User
+
+If you skipped the seed step, create an admin user manually:
+
+```bash
+node backend/seed-users.js
+```
+
+### Test API Endpoints
+
+Test that the API is responding:
+
+```bash
+# Get products
+curl http://localhost:3001/api/products
+
+# Check server health
+curl http://localhost:3001/api/admin/dashboard-stats
+```
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="Port Already in Use">
+    If port 3001 or 5173 is already in use:
+
+    ```bash
+    # Find and kill process on port 3001
+    lsof -ti:3001 | xargs kill -9
+
+    # Find and kill process on port 5173
+    lsof -ti:5173 | xargs kill -9
+    ```
+  </Accordion>
+
+  <Accordion title="Prisma Connection Errors">
+    Ensure PostgreSQL is running and accessible:
+
+    ```bash
+    # Test PostgreSQL connection
+    psql -h localhost -U your_user -d kaiu_db
+
+    # If connection fails, check PostgreSQL service
+    sudo systemctl status postgresql
+    ```
+  </Accordion>
+
+  <Accordion title="Redis Connection Failed">
+    Verify Redis is running:
+
+    ```bash
+    # Check Redis status
+    redis-cli ping
+    # Should return: PONG
+
+    # Start Redis if not running
+    redis-server
+    ```
+  </Accordion>
+
+  <Accordion title="Module Not Found Errors">
+    If you encounter module errors, clear and reinstall:
+
+    ```bash
+    rm -rf node_modules package-lock.json
+    npm install
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Database Setup" icon="database" href="/setup/database-setup">
+    Configure PostgreSQL and enable pgvector for RAG functionality
+  </Card>
+  <Card title="Environment Variables" icon="gear" href="/setup/environment-variables">
+    Complete guide to all configuration options
+  </Card>
+  <Card title="WhatsApp Integration" icon="message" href="/setup/whatsapp-integration">
+    Set up WhatsApp Cloud API for customer messaging
+  </Card>
+  <Card title="Redis Setup" icon="bolt" href="/setup/redis-setup">
+    Configure Redis for queue management
+  </Card>
+</CardGroup>

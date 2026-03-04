@@ -1,0 +1,193 @@
+---
+title: Project Structure
+description: Understanding the KAIU Natural Living codebase organization
+---
+
+## Overview
+
+KAIU Natural Living follows a modern monorepo structure with clear separation between frontend and backend code.
+
+## Root Directory
+
+```
+kaiu-natural-living/
+├── src/                    # Frontend React application
+├── backend/                # Backend Node.js + Express
+├── prisma/                 # Database schema and migrations
+├── public/                 # Static assets
+├── scripts/                # Utility scripts
+├── START_ALL.sh           # Development startup script
+├── server.mjs             # Backend entry point
+├── package.json           # Dependencies and scripts
+└── vite.config.ts         # Vite configuration
+```
+
+## Frontend Structure (`src/`)
+
+The frontend is built with React, Vite, and TailwindCSS.
+
+```
+src/
+├── components/             # React components
+│   ├── admin/             # Admin panel components
+│   ├── cart/              # Shopping cart components
+│   ├── checkout/          # Checkout flow components
+│   ├── dashboard/         # Dashboard components
+│   ├── home/              # Homepage components
+│   ├── layout/            # Layout components (Header, Footer)
+│   ├── products/          # Product display components
+│   ├── rituals/           # Rituals/benefits components
+│   └── ui/                # Reusable UI components (shadcn/ui)
+├── pages/                 # Route pages
+│   ├── admin/             # Admin panel pages
+│   └── ...                # Other pages
+├── context/               # React Context providers
+├── hooks/                 # Custom React hooks
+├── lib/                   # Utility functions and helpers
+├── assets/                # Images, icons, fonts
+├── test/                  # Test utilities and setup
+├── App.tsx                # Root application component
+├── main.tsx               # Application entry point
+└── index.css              # Global styles
+```
+
+### Component Organization
+
+- **UI Components** (`components/ui/`) - Generic, reusable components based on shadcn/ui
+- **Feature Components** - Domain-specific components grouped by feature
+- **Pages** - Top-level route components
+
+## Backend Structure (`backend/`)
+
+The backend is organized by functional domains.
+
+```
+backend/
+├── services/               # Business logic services
+│   ├── ai/                # AI and RAG services
+│   │   └── Retriever.js   # Vector search and retrieval
+│   ├── logistics/         # Shipping and logistics
+│   │   ├── LogisticsManager.js
+│   │   └── providers/     # Carrier integrations
+│   │       ├── BaseCarrier.js
+│   │       └── VenndeloCarrier.js
+│   ├── inventory/         # Inventory management
+│   │   └── InventoryService.js
+│   └── email.js           # Email service
+├── whatsapp/              # WhatsApp integration
+│   ├── webhooks/          # Webhook handlers
+│   └── workers/           # BullMQ queue workers
+├── wompi/                 # Payment gateway integration
+├── admin/                 # Admin API endpoints
+├── api/                   # API route handlers
+├── utils/                 # Utility functions
+├── db.js                  # Database client initialization
+├── create-order.js        # Order creation logic
+├── get-products.js        # Product retrieval
+├── quote-shipping.js      # Shipping quote calculator
+└── track-order.js         # Order tracking
+```
+
+### Backend Organization Principles
+
+- **Services** - Encapsulate business logic and external integrations
+- **API Handlers** - Thin controllers that orchestrate services
+- **Workers** - Background job processors (BullMQ)
+- **Utils** - Shared helper functions
+
+## Database (`prisma/`)
+
+```
+prisma/
+├── schema.prisma          # Prisma schema definition
+├── seed.ts                # Database seeding script
+└── .env                   # Database connection string
+```
+
+See [Prisma Schema Documentation](/development/prisma-schema) for detailed model information.
+
+## Configuration Files
+
+### Build and Development
+
+- `vite.config.ts` - Vite bundler configuration
+  - React plugin with SWC
+  - PWA configuration
+  - API proxy to backend (port 3001)
+  - Path aliases (`@` → `./src`)
+
+- `vitest.config.ts` - Test runner configuration
+  - jsdom environment
+  - Global test utilities
+  - Setup files
+
+- `tailwind.config.ts` - TailwindCSS configuration
+- `tsconfig.json` - TypeScript configuration
+
+### Code Quality
+
+- `eslint.config.js` - ESLint rules
+- `.gitignore` - Git exclusions
+
+### Entry Points
+
+- `server.mjs` - Backend Express server
+- `src/main.tsx` - Frontend React application
+- `START_ALL.sh` - Development environment launcher
+
+## Key Directories Explained
+
+### `/public`
+
+Static assets served directly:
+- Icons and favicons
+- robots.txt
+- Manifest files for PWA
+
+### `/scripts`
+
+Utility scripts for development and testing:
+- `simulate-webhook.js` - Test WhatsApp webhooks
+- `simulate-wompi-events.js` - Test payment events
+- `test-*.js` - Various testing utilities
+
+### `/data`
+
+Configuration and data files (if applicable).
+
+## Import Path Aliases
+
+The project uses path aliases for cleaner imports:
+
+```typescript
+import { Button } from "@/components/ui/button"
+import { formatPrice } from "@/lib/utils"
+```
+
+`@` resolves to `./src/`
+
+## Technology Stack Reference
+
+### Frontend
+- **Framework**: React 18
+- **Build Tool**: Vite 5
+- **Styling**: TailwindCSS + shadcn/ui
+- **Routing**: React Router v6
+- **State**: React Query (TanStack Query)
+- **Forms**: React Hook Form + Zod
+- **UI Components**: Radix UI primitives
+
+### Backend
+- **Runtime**: Node.js 20+
+- **Framework**: Express
+- **Database**: PostgreSQL + Prisma
+- **Queue**: BullMQ + Redis
+- **AI**: Anthropic Claude + LangChain
+- **Messaging**: WhatsApp Cloud API
+- **Payments**: Wompi
+
+## Next Steps
+
+- Explore [Prisma Schema Models](/development/prisma-schema)
+- Learn about [Database Migrations](/development/migrations)
+- Review [Code Style Guide](/development/code-style)

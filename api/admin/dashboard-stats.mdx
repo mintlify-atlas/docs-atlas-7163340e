@@ -1,0 +1,384 @@
+---
+title: 'Dashboard Stats API'
+description: 'Business analytics and KPI metrics for admin dashboard'
+icon: 'chart-line'
+---
+
+<Warning>
+  Requires JWT authentication via `Authorization: Bearer <token>` header.
+</Warning>
+
+---
+
+## Get Dashboard Statistics
+
+<Card title="GET /api/admin/dashboard-stats" icon="chart-mixed">
+  Fetch key performance indicators and chart data for admin dashboard
+</Card>
+
+### Authentication
+
+Required. Validated via `verifyAdminToken(req)` helper from `auth-helper.js:3-18`.
+
+### Response Structure
+
+<ResponseField name="kpi" type="object">
+  Key performance indicators
+  <Expandable title="KPI Metrics">
+    <ResponseField name="totalSales" type="number">
+      Total revenue from valid orders (excludes CANCELLED, RETURNED, REJECTED)
+    </ResponseField>
+    <ResponseField name="totalOrders" type="number">
+      Total number of all orders (including cancelled)
+    </ResponseField>
+    <ResponseField name="pendingOrders" type="number">
+      Count of active orders in PENDING, CONFIRMED, PROCESSING, or READY_TO_SHIP status
+    </ResponseField>
+    <ResponseField name="averageTicket" type="number">
+      Average order value (totalSales / validOrders)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="charts" type="object">
+  Chart-ready data for visualizations
+  <Expandable title="Chart Data">
+    <ResponseField name="sales" type="array">
+      Daily sales data for last 30 days
+      <Expandable title="Sales Data Point">
+        <ResponseField name="date" type="string">
+          ISO date (YYYY-MM-DD)
+        </ResponseField>
+        <ResponseField name="total" type="number">
+          Total sales for that day
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="status" type="array">
+      Order distribution by status
+      <Expandable title="Status Data Point">
+        <ResponseField name="name" type="string">
+          Status name (PENDING, CONFIRMED, SHIPPED, etc.)
+        </ResponseField>
+        <ResponseField name="value" type="number">
+          Number of orders in this status
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Implementation Details
+
+### KPI Calculation Logic
+
+From `dashboard-stats.js:30-38`:
+
+```javascript
+const totalOrders = orders.length;
+
+// Filter Valid Orders (Not Cancelled/Returned for financial stats)
+const validOrders = orders.filter(o => 
+  !['CANCELLED', 'RETURNED', 'REJECTED'].includes(o.status)
+);
+const activeOrders = validOrders.filter(o => 
+  ['PENDING', 'CONFIRMED', 'PROCESSING', 'READY_TO_SHIP'].includes(o.status)
+);
+
+const totalSales = validOrders.reduce((sum, order) => sum + (order.total || 0), 0);
+const averageTicket = validOrders.length > 0 ? (totalSales / validOrders.length) : 0;
+```
+
+<Note>
+  **Valid vs Total Orders**:
+  - `totalOrders`: Includes ALL orders
+  - `validOrders`: Excludes CANCELLED, RETURNED, REJECTED (for financial metrics)
+  - `activeOrders`: Subset of valid orders that need fulfillment
+</Note>
+
+### Sales Chart Generation
+
+From `dashboard-stats.js:40-55`:
+
+```javascript
+const salesByDate = {};
+validOrders.forEach(order => {
+  const date = new Date(order.createdAt).toISOString().split('T')[0];
+  salesByDate[date] = (salesByDate[date] || 0) + (order.total || 0);
+});
+
+// Slice to last 30 entries
+const salesChartData = Object.keys(salesByDate)
+  .sort()
+  .slice(-30) 
+  .map(date => ({
+    date,
+    total: salesByDate[date]
+  }));
+```
+
+<Info>
+  The chart shows up to 30 most recent days with sales activity (not necessarily consecutive days).
+</Info>
+
+### Status Distribution
+
+From `dashboard-stats.js:57-67`:
+
+```javascript
+const statusCounts = {};
+orders.forEach(order => {
+  statusCounts[order.status] = (statusCounts[order.status] || 0) + 1;
+});
+
+const statusChartData = Object.keys(statusCounts).map(status => ({
+  name: status,
+  value: statusCounts[status]
+}));
+```
+
+---
+
+## Example Response
+
+```json
+{
+  "kpi": {
+    "totalSales": 15847200,
+    "totalOrders": 142,
+    "pendingOrders": 23,
+    "averageTicket": 117920
+  },
+  "charts": {
+    "sales": [
+      { "date": "2026-02-03", "total": 456800 },
+      { "date": "2026-02-04", "total": 523100 },
+      { "date": "2026-02-05", "total": 389900 },
+      { "date": "2026-02-06", "total": 612300 },
+      { "date": "2026-02-07", "total": 498700 },
+      { "date": "2026-02-08", "total": 534200 },
+      { "date": "2026-02-09", "total": 401500 },
+      { "date": "2026-02-10", "total": 678900 }
+    ],
+    "status": [
+      { "name": "PENDING", "value": 15 },
+      { "name": "CONFIRMED", "value": 8 },
+      { "name": "PROCESSING", "value": 12 },
+      { "name": "READY_TO_SHIP", "value": 5 },
+      { "name": "PICKUP_REQUESTED", "value": 3 },
+      { "name": "SHIPPED", "value": 45 },
+      { "name": "DELIVERED", "value": 48 },
+      { "name": "CANCELLED", "value": 6 }
+    ]
+  }
+}
+```
+
+---
+
+## Usage Example
+
+### Fetch and Display KPIs
+
+```javascript
+const response = await fetch('https://api.kaiucol.com/api/admin/dashboard-stats', {
+  headers: {
+    'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+  }
+});
+
+const { kpi, charts } = await response.json();
+
+// Display KPIs
+console.log(`Total Revenue: $${kpi.totalSales.toLocaleString()} COP`);
+console.log(`Orders: ${kpi.totalOrders} (${kpi.pendingOrders} pending)`);
+console.log(`Average Order Value: $${Math.round(kpi.averageTicket).toLocaleString()} COP`);
+
+// Render charts with your preferred library (Chart.js, Recharts, etc.)
+renderSalesChart(charts.sales);
+renderStatusPieChart(charts.status);
+```
+
+### Real-Time Dashboard Component (React Example)
+
+```jsx
+import { useEffect, useState } from 'react';
+import { LineChart, Line, PieChart, Pie } from 'recharts';
+
+function AdminDashboard() {
+  const [stats, setStats] = useState(null);
+  
+  useEffect(() => {
+    async function fetchStats() {
+      const response = await fetch('/api/admin/dashboard-stats', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+        }
+      });
+      const data = await response.json();
+      setStats(data);
+    }
+    
+    fetchStats();
+    // Refresh every 5 minutes
+    const interval = setInterval(fetchStats, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+  
+  if (!stats) return <div>Loading...</div>;
+  
+  return (
+    <div className="dashboard">
+      <div className="kpi-cards">
+        <KPICard 
+          title="Total Sales" 
+          value={`$${stats.kpi.totalSales.toLocaleString()} COP`}
+          icon="💰"
+        />
+        <KPICard 
+          title="Total Orders" 
+          value={stats.kpi.totalOrders}
+          icon="📦"
+        />
+        <KPICard 
+          title="Pending Orders" 
+          value={stats.kpi.pendingOrders}
+          icon="⏳"
+        />
+        <KPICard 
+          title="Avg. Ticket" 
+          value={`$${Math.round(stats.kpi.averageTicket).toLocaleString()} COP`}
+          icon="🎯"
+        />
+      </div>
+      
+      <div className="charts">
+        <LineChart width={600} height={300} data={stats.charts.sales}>
+          <Line type="monotone" dataKey="total" stroke="#8884d8" />
+        </LineChart>
+        
+        <PieChart width={400} height={300}>
+          <Pie data={stats.charts.status} dataKey="value" nameKey="name" />
+        </PieChart>
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Performance Considerations
+
+### Query Optimization
+
+From `dashboard-stats.js:18-28`:
+
+```javascript
+const orders = await prisma.order.findMany({
+  orderBy: { createdAt: 'desc' },
+  // Optional: select specific fields to reduce payload
+  select: {
+    id: true,
+    readableId: true,
+    status: true,
+    total: true,
+    createdAt: true
+  }
+});
+```
+
+<Warning>
+  **Current Limitation**: Fetches ALL orders into memory. For production with large datasets:
+  
+  1. Add date range filters (e.g., last 90 days)
+  2. Use Prisma aggregations for KPIs instead of in-memory calculations
+  3. Cache results in Redis with 5-minute TTL
+</Warning>
+
+### Recommended Optimizations
+
+```javascript
+// V2: Use aggregations and date filters
+const thirtyDaysAgo = new Date();
+thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+const [totalSales, orderCount, activeCount] = await Promise.all([
+  prisma.order.aggregate({
+    where: {
+      status: { notIn: ['CANCELLED', 'RETURNED', 'REJECTED'] },
+      createdAt: { gte: thirtyDaysAgo }
+    },
+    _sum: { total: true },
+    _avg: { total: true }
+  }),
+  prisma.order.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
+  prisma.order.count({
+    where: {
+      status: { in: ['PENDING', 'CONFIRMED', 'PROCESSING', 'READY_TO_SHIP'] }
+    }
+  })
+]);
+```
+
+---
+
+## Error Handling
+
+```javascript
+try {
+  const response = await fetch('/api/admin/dashboard-stats', {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  
+  if (response.status === 401) {
+    // Token expired or invalid
+    redirectToLogin();
+    return;
+  }
+  
+  if (!response.ok) {
+    throw new Error('Failed to fetch dashboard stats');
+  }
+  
+  const stats = await response.json();
+  renderDashboard(stats);
+  
+} catch (error) {
+  console.error('Dashboard error:', error);
+  showErrorNotification('Unable to load dashboard. Please try again.');
+}
+```
+
+---
+
+## Status Reference
+
+<AccordionGroup>
+  <Accordion title="Order Status Flow">
+    ```
+    PENDING → CONFIRMED → PROCESSING → READY_TO_SHIP → 
+    PICKUP_REQUESTED → SHIPPED → DELIVERED
+    ```
+    
+    Alternative flows:
+    - `PENDING → CANCELLED`
+    - `DELIVERED → RETURNED`
+    - `PENDING → REJECTED`
+  </Accordion>
+  
+  <Accordion title="Status Definitions">
+    - **PENDING**: Order created, awaiting confirmation
+    - **CONFIRMED**: Payment verified, ready for processing
+    - **PROCESSING**: Being prepared in warehouse
+    - **READY_TO_SHIP**: Packed and labeled
+    - **PICKUP_REQUESTED**: Carrier pickup scheduled
+    - **SHIPPED**: In transit
+    - **DELIVERED**: Successfully delivered
+    - **CANCELLED**: Order cancelled before shipping
+    - **RETURNED**: Customer initiated return
+    - **REJECTED**: Order rejected (e.g., payment failure)
+  </Accordion>
+</AccordionGroup>

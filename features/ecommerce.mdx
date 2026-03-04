@@ -1,0 +1,519 @@
+---
+title: E-commerce Platform
+description: Complete online store functionality for KAIU Natural Living's natural products
+---
+
+## Overview
+
+KAIU Natural Living's e-commerce platform provides a seamless shopping experience for customers to browse, purchase, and track natural wellness products. The system integrates real-time inventory, multiple payment methods, and automated logistics.
+
+## Customer Shopping Flow
+
+<Steps>
+  <Step title="Browse Catalog">
+    Customers explore products through an intuitive catalog with advanced filtering and search capabilities.
+  </Step>
+  <Step title="Add to Cart">
+    Select product variants and quantities, with real-time stock validation.
+  </Step>
+  <Step title="Checkout">
+    Complete purchase with shipping calculation and payment method selection.
+  </Step>
+  <Step title="Track Order">
+    Monitor order status and shipping in real-time.
+  </Step>
+</Steps>
+
+## Product Catalog
+
+### Browsing Experience
+
+The catalog page (`src/pages/Catalogo.tsx:120-290`) provides multiple ways to discover products:
+
+<Tabs>
+  <Tab title="Search">
+    **Smart Search Bar**
+    
+    - Fuzzy matching for typos (e.g., "Lavnda" finds "Lavanda")
+    - Searches across product names, categories, and benefits
+    - Real-time results as you type
+    
+    ```typescript
+    // Search implementation uses fuzzy matching
+    filterProductsByQuery(products, searchQuery)
+    ```
+    
+    **Example searches:**
+    - "Lavanda" → Finds all lavender products
+    - "Relax" → Shows relaxation-focused items
+    - "Gotero" → Displays dropper bottle variants
+  </Tab>
+  
+  <Tab title="Categories">
+    **Product Categories**
+    
+    Products are organized into categories:
+    - Aceites Esenciales
+    - Aceites Portadores
+    - Hidrolatos
+    - Kits (shown separately)
+    
+    Categories are dynamically generated from product data:
+    ```typescript
+    const categories = ['Todos', ...new Set(products.map(p => p.categoria))];
+    ```
+  </Tab>
+  
+  <Tab title="Benefits">
+    **Filter by Benefits**
+    
+    Customers can filter products by therapeutic benefits:
+    - Relajación
+    - Energía
+    - Concentración
+    - Desinflamación
+    - And more...
+    
+    <Info>
+      Multiple benefits can be selected simultaneously for refined searches.
+    </Info>
+  </Tab>
+  
+  <Tab title="View Modes">
+    **Grid vs List View**
+    
+    - **Grid View**: Card layout showing product images (desktop default)
+    - **List View**: Compact rows with details (mobile default)
+    
+    View mode automatically adapts:
+    ```typescript
+    const [viewMode, setViewMode] = useState<'grid' | 'list'>(
+      window.innerWidth < 768 ? 'list' : 'grid'
+    );
+    ```
+  </Tab>
+</Tabs>
+
+### Product Information
+
+Each product card displays:
+- Product image gallery
+- Name and variant (e.g., "10ml", "30ml")
+- Price in Colombian Pesos (COP)
+- Benefits and category
+- Stock availability status
+- "Add to Cart" or "Out of Stock" button
+
+<CardGroup cols={2}>
+  <Card title="Stock Management" icon="box">
+    Real-time inventory tracking ensures customers only see available products. Out-of-stock items display a badge and disabled purchase button.
+  </Card>
+  
+  <Card title="Product Variants" icon="layer-group">
+    Products can have multiple variants (sizes, formats) managed as separate SKUs with individual pricing and stock levels.
+  </Card>
+</CardGroup>
+
+## Shopping Cart
+
+### Cart Management
+
+The cart system (`src/context/CartContextDef`) provides:
+
+<Accordion>
+  <AccordionGroup>
+    <Accordion title="Add Items">
+      ```typescript
+      const addToCart = (product: Product, variant: Variant, quantity: number) => {
+        // Validates stock availability
+        // Updates cart state
+        // Persists to localStorage
+      }
+      ```
+      
+      **Features:**
+      - Stock validation before adding
+      - Quantity limits based on available inventory
+      - Duplicate detection (increases quantity instead)
+    </Accordion>
+    
+    <Accordion title="Update Quantities">
+      Customers can adjust quantities directly in cart:
+      - Increment/decrement buttons
+      - Direct number input
+      - Real-time total recalculation
+      
+      <Warning>
+        If requested quantity exceeds stock, the system automatically caps it to available units.
+      </Warning>
+    </Accordion>
+    
+    <Accordion title="Remove Items">
+      Items can be removed individually or the entire cart can be cleared.
+      
+      Cart persists across browser sessions using localStorage:
+      ```typescript
+      localStorage.setItem('kaiu_cart', JSON.stringify(cartItems));
+      ```
+    </Accordion>
+  </AccordionGroup>
+</Accordion>
+
+### Cart Visibility
+
+The cart icon in the navigation header shows:
+- Item count badge
+- Slide-out drawer with full cart contents
+- Running total
+- Quick access to checkout
+
+## Checkout Process
+
+### Form Validation
+
+The checkout form (`src/pages/Checkout.tsx:69-95`) implements strict validation:
+
+<CodeGroup>
+```typescript Customer Information
+// Name validation
+if (!/^[a-zA-ZñÑáéíóúÁÉÍÓÚ\s]+$/.test(value)) 
+  return "Solo letras y espacios.";
+if (value.trim().split(/\s+/).length < 2) 
+  return "Ingresa Nombre y Apellido.";
+
+// Phone validation (Colombian mobile)
+if (!/^3\d{9}$/.test(value)) 
+  return "Debe ser celular (3xx) de 10 dígitos.";
+
+// Email validation
+if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(value)) 
+  return "Email inválido";
+```
+
+```typescript Shipping Address
+// Address validation
+if (value.trim().length < 10) 
+  return "Dirección muy corta. Incluye Calle, # y Barrio.";
+
+// Colombian departments and cities
+const selectedDept = locationsData.find(d => d.code === departamento_code);
+const cities = selectedDept ? selectedDept.cities : [];
+```
+</CodeGroup>
+
+### Shipping Calculation
+
+Shipping costs are calculated automatically (`src/pages/Checkout.tsx:97-140`):
+
+1. **Customer selects city** → System captures:
+   - Department code
+   - City code
+   - Destination coordinates
+
+2. **API quote request** → Sends:
+   ```json
+   {
+     "city_code": "11001",
+     "subdivision_code": "11",
+     "line_items": [
+       {
+         "unit_price": 50000,
+         "quantity": 1,
+         "weight": 0.2,
+         "dimensions": { "height": 10, "width": 10, "length": 10 }
+       }
+     ],
+     "payment_method_code": "COD"
+   }
+   ```
+
+3. **Receives shipping cost** → Displays final total
+
+<Info>
+  Shipping is calculated in real-time using the logistics provider's API. If the API fails, the system gracefully falls back to "TBD" status and allows order creation.
+</Info>
+
+### Payment Methods
+
+<Tabs>
+  <Tab title="Cash on Delivery (COD)">
+    **Contra Entrega**
+    
+    The most popular payment method in Colombia:
+    
+    - Customer pays when receiving the package
+    - Order confirmed immediately upon checkout
+    - Inventory reserved instantly
+    - Confirmation email sent automatically
+    
+    **Backend flow** (`backend/create-order.js:203-224`):
+    ```javascript
+    if (orderData.payment_method_code === 'COD') {
+      await InventoryService.confirmSale(orderData.line_items);
+      
+      // Send COD confirmation email
+      const mockTransaction = {
+        id: `COD-${shipmentId}`,
+        status: 'PENDING_PAYMENT_ON_DELIVERY',
+        payment_method: { type: 'PAGO_CONTRA_ENTREGA' }
+      };
+      
+      sendOrderConfirmation(emailOrderPayload, mockTransaction);
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Online Payment (Wompi)">
+    **Pago Online**
+    
+    Integration with Wompi payment gateway:
+    
+    **Checkout flow:**
+    1. Order created with `EXTERNAL_PAYMENT` method
+    2. Inventory reserved (not deducted yet)
+    3. System generates cryptographic signature
+    4. Customer redirected to Wompi
+    5. Webhook confirms payment
+    6. Stock deducted upon confirmation
+    
+    **Signature generation** (`src/pages/Checkout.tsx:235-257`):
+    ```typescript
+    const signRes = await fetch('/api/wompi/sign', {
+      method: 'POST',
+      body: JSON.stringify({
+        reference: `KAIU-${orderId}`,
+        amount: amountInCents,
+        currency: "COP"
+      })
+    });
+    
+    // Form auto-submitted to Wompi
+    form.submit();
+    ```
+    
+    <Warning>
+      Stock is only reserved during online payment to prevent double-selling. Final deduction happens after webhook confirmation.
+    </Warning>
+  </Tab>
+</Tabs>
+
+### Order Confirmation
+
+After successful checkout:
+
+1. **Order ID generated** → Readable PIN format (e.g., `#1050`)
+2. **Confirmation email sent** → Includes:
+   - Order details and items
+   - Shipping address
+   - Total breakdown
+   - Tracking information (when available)
+3. **Success page displayed** → Shows order number and next steps
+4. **Cart cleared** → Ready for next purchase
+
+## Order Tracking
+
+### Customer Tracking Portal
+
+The tracking page (`src/pages/TrackOrder.tsx:24-193`) allows customers to:
+
+**Search by:**
+- Order PIN (readable ID)
+- Tracking number (from carrier)
+- Database ID (UUID)
+
+**View information:**
+- Order status (Pending, Shipped, Delivered, etc.)
+- Creation date
+- Carrier name
+- Tracking number with clickable link
+- Order total
+
+<CodeGroup>
+```typescript Status Translation
+const translateStatus = (status: string) => {
+  const map: Record<string, string> = {
+    'PENDING': 'Pendiente',
+    'APPROVED': 'Aprobado',
+    'PREPARING': 'En Preparación',
+    'SHIPPED': 'En Tránsito (Enviado)',
+    'DELIVERED': 'Entregado',
+    'CANCELLED': 'Cancelado'
+  };
+  return map[status?.toUpperCase()] || status;
+};
+```
+
+```typescript Status Colors
+const getStatusColor = (status: string) => {
+  switch(status?.toUpperCase()) {
+    case 'SHIPPED': return 'bg-blue-500';
+    case 'DELIVERED': return 'bg-green-500';
+    case 'CANCELLED': return 'bg-red-500';
+    default: return 'bg-yellow-500'; // Pending, Processing
+  }
+};
+```
+</CodeGroup>
+
+### Auto-tracking Links
+
+Tracking page supports URL parameters for instant lookup:
+
+```
+https://kaiu.com.co/rastreo?guide=568139
+```
+
+This enables:
+- Email links that auto-search
+- QR codes on shipping labels
+- Customer support quick-links
+
+## Inventory Integration
+
+### Stock Reservation System
+
+The backend implements a two-phase commit for inventory (`backend/create-order.js:98-102`):
+
+<Steps>
+  <Step title="Reserve Stock">
+    When order is created, stock is temporarily reserved:
+    ```javascript
+    await InventoryService.reserveStock(orderData.line_items);
+    ```
+    
+    This prevents overselling during checkout process.
+  </Step>
+  
+  <Step title="Confirm or Release">
+    Based on payment outcome:
+    - **COD**: Immediately confirm (deduct from real stock)
+    - **Online Payment**: Wait for webhook confirmation
+    - **Failed Order**: Release reservation back to pool
+  </Step>
+</Steps>
+
+<Warning>
+  If order creation fails at any point (logistics API error, database error), the system automatically releases reserved stock:
+  
+  ```javascript
+  await InventoryService.releaseReserve(orderData.line_items);
+  ```
+</Warning>
+
+### Real-time Availability
+
+Product availability updates instantly:
+- Frontend polls inventory status
+- "Out of Stock" badges appear automatically
+- Cart validation prevents checkout with unavailable items
+
+## Order Processing Backend
+
+### Complete Order Flow
+
+The order creation endpoint (`backend/create-order.js`) orchestrates:
+
+1. **Validation** → Zod schema validation of all fields
+2. **Stock Check** → Reserve inventory or fail fast
+3. **Database Entry** → Create order record with PENDING status
+4. **Logistics API** → Create shipment with carrier
+5. **Update Order** → Add tracking info and external IDs
+6. **Payment Handling** → Process based on method (COD vs Online)
+7. **Notifications** → Send confirmation emails
+
+<Accordion>
+  <AccordionGroup>
+    <Accordion title="Rollback Mechanism">
+      If logistics API fails, system performs automatic rollback:
+      
+      ```javascript
+      try {
+        shipmentData = await LogisticsManager.createShipment(payload);
+      } catch (logisticsError) {
+        // Cancel order in database
+        await prisma.order.update({
+          where: { id: dbOrder.id },
+          data: { status: 'CANCELLED' }
+        });
+        
+        // Release reserved stock
+        await InventoryService.releaseReserve(orderData.line_items);
+        
+        return res.status(502).json({ error: 'Error creating shipment' });
+      }
+      ```
+      
+      This ensures data consistency across systems.
+    </Accordion>
+    
+    <Accordion title="External ID Mapping">
+      Orders maintain multiple identifiers:
+      
+      - **Database ID**: UUID (e.g., `a1b2c3d4-...`)
+      - **Readable ID**: Customer-facing PIN (e.g., `1050`)
+      - **External ID**: Logistics provider reference
+      - **Tracking Number**: Carrier-assigned guide number
+      
+      ```javascript
+      const logisticsPayload = {
+        ...orderData,
+        external_order_id: String(dbOrder.readableId)
+      };
+      ```
+    </Accordion>
+  </AccordionGroup>
+</Accordion>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Form Persistence" icon="save">
+    Checkout form data persists in localStorage, so customers don't lose information if they navigate away:
+    
+    ```typescript
+    localStorage.setItem('kaiu_checkout_data', JSON.stringify(formData));
+    ```
+  </Card>
+  
+  <Card title="Smart Validation" icon="shield-check">
+    Real-time field validation with helpful error messages guides customers to provide correct information on first try.
+  </Card>
+  
+  <Card title="Responsive Design" icon="mobile">
+    Catalog automatically switches between grid and list views based on screen size, optimizing for mobile shoppers.
+  </Card>
+  
+  <Card title="SEO & URLs" icon="link">
+    Category and search parameters appear in URLs, allowing customers to share and bookmark specific catalog views:
+    
+    ```
+    /catalogo?categoria=Aceites+Esenciales&q=lavanda
+    ```
+  </Card>
+</CardGroup>
+
+## API Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|----------|
+| `/api/create-order` | POST | Create new order with logistics |
+| `/api/quote-shipping` | POST | Calculate shipping cost |
+| `/api/track-order` | GET | Retrieve order status by ID |
+| `/api/wompi/sign` | POST | Generate payment signature |
+| `/api/products` | GET | Fetch product catalog |
+
+## Related Features
+
+<CardGroup cols={3}>
+  <Card title="Admin Dashboard" icon="gauge" href="/features/admin-dashboard">
+    Manage orders and view sales analytics
+  </Card>
+  
+  <Card title="Order Management" icon="box" href="/features/order-management">
+    Process and fulfill customer orders
+  </Card>
+  
+  <Card title="Inventory" icon="warehouse" href="/features/inventory">
+    Track and manage product stock
+  </Card>
+</CardGroup>

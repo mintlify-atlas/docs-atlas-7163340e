@@ -1,0 +1,411 @@
+---
+title: Contributing Guidelines
+description: How to contribute to KAIU Natural Living
+---
+
+## Welcome Contributors
+
+Thank you for your interest in contributing to KAIU Natural Living! This guide will help you get started.
+
+## Getting Started
+
+<Steps>
+
+### Fork and Clone
+
+```bash
+# Fork the repository on GitHub, then clone your fork
+git clone https://github.com/YOUR_USERNAME/kaiu-natural-living.git
+cd kaiu-natural-living
+```
+
+### Set Up Development Environment
+
+Follow the [Local Development Setup](/development/local-development) guide.
+
+### Create a Branch
+
+```bash
+git checkout -b feature/your-feature-name
+# OR
+git checkout -b fix/bug-description
+```
+
+### Make Your Changes
+
+Write code following our [Code Style Guide](/development/code-style).
+
+### Test Your Changes
+
+```bash
+npm run test
+npm run lint
+```
+
+### Commit Your Changes
+
+Follow conventional commit format (see below).
+
+### Push and Create PR
+
+```bash
+git push origin feature/your-feature-name
+```
+
+Then create a Pull Request on GitHub.
+
+</Steps>
+
+## Contribution Types
+
+### Bug Fixes
+
+1. Check if the bug is already reported in Issues
+2. Create a new issue if not exists
+3. Reference the issue in your PR: "Fixes #123"
+4. Include steps to reproduce and how your fix resolves it
+
+### New Features
+
+1. Open an issue to discuss the feature first
+2. Get approval from maintainers
+3. Implement following the project architecture
+4. Add tests for new functionality
+5. Update documentation
+
+### Documentation
+
+1. Fix typos, improve clarity
+2. Add missing documentation
+3. Update outdated information
+4. Add code examples
+
+### Tests
+
+1. Add tests for untested code
+2. Improve existing tests
+3. Fix flaky tests
+
+## Commit Message Format
+
+We use [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+### Types
+
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `style`: Code style changes (formatting, semicolons, etc.)
+- `refactor`: Code refactoring
+- `test`: Adding or updating tests
+- `chore`: Maintenance tasks
+- `perf`: Performance improvements
+
+### Examples
+
+```bash
+feat(products): add featured products section
+
+fix(checkout): resolve shipping calculation error for COD orders
+
+docs(readme): update installation instructions
+
+test(orders): add tests for order creation flow
+
+refactor(api): simplify product endpoint logic
+```
+
+### Scope Guidelines
+
+Common scopes:
+- `products` - Product-related changes
+- `orders` - Order management
+- `checkout` - Checkout flow
+- `whatsapp` - WhatsApp integration
+- `ai` - AI orchestrator
+- `dashboard` - Admin dashboard
+- `api` - Backend API
+- `db` - Database/Prisma changes
+
+## Code Review Process
+
+### Before Submitting
+
+- [ ] Code follows style guide
+- [ ] All tests pass
+- [ ] Lint passes without errors
+- [ ] Documentation updated
+- [ ] Commit messages follow conventions
+- [ ] No merge conflicts
+
+### PR Template
+
+When creating a PR, include:
+
+```markdown
+## Description
+Brief description of changes
+
+## Type of Change
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Documentation update
+- [ ] Refactoring
+- [ ] Performance improvement
+
+## Testing
+- [ ] Unit tests added/updated
+- [ ] Manual testing performed
+- [ ] Edge cases considered
+
+## Screenshots (if applicable)
+Add screenshots for UI changes
+
+## Related Issues
+Closes #123
+```
+
+### Review Expectations
+
+- Maintainers will review within 48 hours
+- Address feedback promptly
+- Keep PRs focused and small
+- One feature/fix per PR
+
+## Code Standards
+
+### TypeScript
+
+- Use TypeScript for all new frontend code
+- Define proper types, avoid `any`
+- Use interfaces for object shapes
+
+```typescript
+// Good
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+}
+
+// Avoid
+const product: any = { ... };
+```
+
+### React Components
+
+- Use functional components
+- Prefer hooks over class components
+- Extract reusable logic into custom hooks
+- Keep components small and focused
+
+```typescript
+// Good - Small, focused component
+function ProductPrice({ price }: { price: number }) {
+  return <span className="price">{formatPrice(price)}</span>;
+}
+
+// Avoid - Too many responsibilities
+function ProductCard({ product, cart, user, ... }) {
+  // 200 lines of mixed logic
+}
+```
+
+### Backend Code
+
+- Use async/await over callbacks
+- Handle errors properly
+- Add logging for debugging
+- Keep functions focused
+
+```javascript
+// Good
+async function createOrder(orderData) {
+  try {
+    const order = await prisma.order.create({ data: orderData });
+    console.log('Order created:', order.id);
+    return order;
+  } catch (error) {
+    console.error('Order creation failed:', error);
+    throw error;
+  }
+}
+```
+
+## Testing Requirements
+
+### Unit Tests
+
+Add tests for:
+- New components
+- New utility functions
+- Business logic
+- API endpoints
+
+```typescript
+test('calculates order total correctly', () => {
+  const items = [
+    { price: 45000, quantity: 2 },
+    { price: 30000, quantity: 1 }
+  ];
+  
+  const total = calculateTotal(items);
+  expect(total).toBe(120000);
+});
+```
+
+### Integration Tests
+
+Test critical flows:
+- Checkout process
+- Order creation
+- Payment handling
+
+## Documentation Requirements
+
+### Code Comments
+
+```typescript
+/**
+ * Calculates shipping cost based on destination and package weight
+ * @param destination - City and department
+ * @param weight - Package weight in kg
+ * @returns Shipping cost in COP cents
+ */
+function calculateShipping(destination: Address, weight: number): number {
+  // Implementation
+}
+```
+
+### README Updates
+
+Update README.md if you:
+- Add new environment variables
+- Change setup instructions
+- Add new dependencies
+- Modify architecture
+
+### API Documentation
+
+Document new endpoints:
+
+```javascript
+/**
+ * POST /api/orders
+ * Creates a new order
+ * 
+ * Body:
+ * {
+ *   customerName: string,
+ *   customerEmail: string,
+ *   items: [{ productId: string, quantity: number }]
+ * }
+ * 
+ * Returns: Order object
+ */
+```
+
+## Database Changes
+
+### Schema Modifications
+
+1. Edit `prisma/schema.prisma`
+2. Create migration: `npx prisma migrate dev --name description`
+3. Test migration locally
+4. Include migration in PR
+5. Document breaking changes
+
+### Seed Data Updates
+
+If modifying `prisma/seed.ts`:
+- Don't remove existing seed data
+- Add new data additively
+- Test seed script: `npm run seed`
+
+## Security Guidelines
+
+### Never Commit
+
+- API keys or secrets
+- `.env` files
+- User data or passwords
+- Database credentials
+
+### Security Best Practices
+
+- Validate all user input
+- Sanitize database queries
+- Use environment variables for secrets
+- Hash passwords with bcrypt
+- Implement rate limiting
+
+```javascript
+// Good - Validate input
+function createUser(email, password) {
+  if (!isValidEmail(email)) {
+    throw new Error('Invalid email');
+  }
+  if (password.length < 8) {
+    throw new Error('Password too short');
+  }
+  // ...
+}
+```
+
+## Performance Considerations
+
+- Optimize database queries (use indexes)
+- Implement pagination for large lists
+- Cache expensive operations
+- Lazy load images and components
+- Monitor bundle size
+
+## Questions and Support
+
+- Open an issue for questions
+- Join community discussions
+- Tag maintainers for urgent issues
+- Be respectful and patient
+
+## Code of Conduct
+
+### Our Standards
+
+- Be respectful and inclusive
+- Accept constructive criticism
+- Focus on what's best for the project
+- Show empathy towards others
+
+### Unacceptable Behavior
+
+- Harassment or discrimination
+- Trolling or insulting comments
+- Publishing others' private information
+- Unprofessional conduct
+
+## License
+
+By contributing, you agree that your contributions will be licensed under the project's license.
+
+## Recognition
+
+Contributors will be recognized in:
+- README.md contributors section
+- Release notes
+- Project credits
+
+## Next Steps
+
+- Review [Code Style Guide](/development/code-style)
+- Check [Testing Guide](/development/testing)
+- Read [Project Structure](/development/project-structure)
+
+Thank you for contributing to KAIU Natural Living!

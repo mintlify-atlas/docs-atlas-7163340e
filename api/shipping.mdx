@@ -1,0 +1,240 @@
+---
+title: 'Quote Shipping'
+description: 'Get shipping cost estimates'
+---
+
+## POST /api/quote-shipping
+
+Calculates shipping cost estimates based on destination and package details. Uses the LogisticsManager to get the best quote from available carriers.
+
+### Request Body
+
+<ParamField body="city_code" type="string" required>
+  DANE destination city code (e.g., "11001" for Bogotá)
+</ParamField>
+
+<ParamField body="subdivision_code" type="string" required>
+  DANE destination department code (e.g., "11" for Cundinamarca)
+</ParamField>
+
+<ParamField body="line_items" type="array" required>
+  Array of items to ship
+  
+  <ParamField body="line_items[].weight" type="number">
+    Weight in kilograms (default: 0.5)
+  </ParamField>
+  
+  <ParamField body="line_items[].weight_unit" type="string">
+    Weight unit (default: "KG")
+  </ParamField>
+  
+  <ParamField body="line_items[].height" type="number">
+    Height in centimeters (default: 10)
+  </ParamField>
+  
+  <ParamField body="line_items[].width" type="number">
+    Width in centimeters (default: 10)
+  </ParamField>
+  
+  <ParamField body="line_items[].length" type="number">
+    Length in centimeters (default: 10)
+  </ParamField>
+  
+  <ParamField body="line_items[].dimensions_unit" type="string">
+    Dimensions unit (default: "CM")
+  </ParamField>
+  
+  <ParamField body="line_items[].unit_price" type="number" required>
+    Item unit price
+  </ParamField>
+  
+  <ParamField body="line_items[].quantity" type="number" required>
+    Item quantity
+  </ParamField>
+</ParamField>
+
+<ParamField body="payment_method_code" type="string">
+  Payment method: "COD" or "EXTERNAL_PAYMENT" (default: "EXTERNAL_PAYMENT")
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates if quote was successful
+</ResponseField>
+
+<ResponseField name="shipping_cost" type="number">
+  Shipping cost in Colombian pesos
+</ResponseField>
+
+<ResponseField name="carrier" type="string">
+  Selected carrier name (e.g., "Coordinadora", "Servientrega")
+</ResponseField>
+
+<ResponseField name="days" type="number">
+  Estimated delivery days
+</ResponseField>
+
+<ResponseField name="details" type="object">
+  Additional quote details for debugging
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:3001/api/quote-shipping \
+  -H "Content-Type: application/json" \
+  -d '{
+    "city_code": "11001",
+    "subdivision_code": "11",
+    "line_items": [
+      {
+        "weight": 0.15,
+        "weight_unit": "KG",
+        "height": 12,
+        "width": 4,
+        "length": 4,
+        "dimensions_unit": "CM",
+        "unit_price": 89000,
+        "quantity": 1
+      },
+      {
+        "weight": 0.2,
+        "weight_unit": "KG",
+        "height": 15,
+        "width": 5,
+        "length": 5,
+        "dimensions_unit": "CM",
+        "unit_price": 65000,
+        "quantity": 2
+      }
+    ],
+    "payment_method_code": "COD"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "shipping_cost": 15500,
+  "carrier": "Coordinadora",
+  "days": 3,
+  "details": {
+    "cost": 15500,
+    "carrier": "Coordinadora",
+    "days": 3,
+    "service_type": "STANDARD"
+  }
+}
+```
+
+## DANE Codes
+
+<Tip>
+DANE codes are Colombian administrative division codes. You can find the complete list at [DANE's official website](https://www.dane.gov.co/).
+</Tip>
+
+### Common DANE City Codes
+
+| City | City Code | Department Code |
+|------|-----------|----------------|
+| Bogotá | 11001 | 11 |
+| Medellín | 05001 | 05 |
+| Cali | 76001 | 76 |
+| Barranquilla | 08001 | 08 |
+| Cartagena | 13001 | 13 |
+
+## Origin Configuration
+
+The origin warehouse is automatically configured from environment variables:
+- `VENNDELO_PICKUP_NAME`
+- `VENNDELO_PICKUP_ADDRESS`
+- `VENNDELO_PICKUP_CITY_CODE`
+- `VENNDELO_PICKUP_SUBDIVISION_CODE`
+
+## Carrier Selection
+
+The LogisticsManager automatically selects the best carrier based on:
+- Lowest cost
+- Service availability for destination
+- Payment method compatibility (some carriers don't support COD)
+
+## Supported Carriers
+
+Currently integrated with:
+- **Venndelo** (aggregator for multiple carriers)
+- **Coordinadora**
+- **Servientrega**
+- Other carriers via Venndelo API
+
+## Default Dimensions
+
+If dimensions are not provided for line items, the following defaults are used:
+
+```json
+{
+  "weight": 0.5,
+  "weight_unit": "KG",
+  "height": 10,
+  "width": 10,
+  "length": 10,
+  "dimensions_unit": "CM"
+}
+```
+
+## Volumetric Weight
+
+Carriers may apply volumetric weight calculation:
+
+```
+Volumetric Weight (kg) = (Height × Width × Length) / 5000
+```
+
+The higher value between actual weight and volumetric weight is used for pricing.
+
+## Error Responses
+
+### 400 Bad Request - Invalid Data
+
+```json
+{
+  "error": "Datos de cotización inválidos",
+  "details": {
+    "city_code": {
+      "_errors": ["Required"]
+    }
+  }
+}
+```
+
+### 405 Method Not Allowed
+
+```json
+{
+  "error": "Método no permitido"
+}
+```
+
+### 500 Internal Server Error - Logistics Error
+
+```json
+{
+  "error": "Error al calcular costos de envío",
+  "message": "Venndelo API unavailable"
+}
+```
+
+## Performance
+
+<Info>
+Shipping quotes are calculated in real-time by querying the logistics provider's API. Response times typically range from 500ms to 2 seconds depending on carrier API availability.
+</Info>
+
+## Caching Recommendations
+
+For production implementations, consider:
+- Caching quotes by destination + weight combination for 5-10 minutes
+- Implementing client-side debouncing for quote requests
+- Showing loading states during API calls

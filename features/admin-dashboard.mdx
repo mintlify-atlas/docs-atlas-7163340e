@@ -1,0 +1,600 @@
+---
+title: Admin Dashboard
+description: Operations control center for order management, inventory, and business analytics
+---
+
+## Overview
+
+The KAIU Admin Dashboard (`src/pages/admin/AdminDashboard.tsx`) provides a comprehensive operations interface for managing orders, inventory, and viewing real-time business metrics. Access is secured with JWT authentication.
+
+## Authentication
+
+### Login System
+
+<Steps>
+  <Step title="Login Page">
+    Admin navigates to `/admin/login` and enters credentials.
+  </Step>
+  
+  <Step title="Token Generation">
+    Backend validates credentials and issues JWT token:
+    ```javascript
+    const token = jwt.sign({ username }, SECRET_KEY, { expiresIn: '24h' });
+    ```
+  </Step>
+  
+  <Step title="Session Storage">
+    Frontend stores token and username:
+    ```typescript
+    sessionStorage.setItem('kaiu_admin_token', token);
+    sessionStorage.setItem('kaiu_admin_user', username);
+    ```
+  </Step>
+  
+  <Step title="Protected Routes">
+    All admin API calls include Authorization header:
+    ```typescript
+    const headers = { 'Authorization': `Bearer ${token}` };
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  If token is missing or invalid (401 response), dashboard automatically redirects to login page.
+</Warning>
+
+## Dashboard Layout
+
+The dashboard uses a tabbed interface for different operational areas:
+
+<Tabs>
+  <Tab title="Resumen Ejecutivo">
+    **Overview Tab**
+    
+    Key performance indicators and charts for business monitoring.
+  </Tab>
+  
+  <Tab title="Inventario">
+    **Inventory Tab**
+    
+    Product catalog management with stock control.
+  </Tab>
+  
+  <Tab title="Gestión de Envíos">
+    **Shipments Tab**
+    
+    Order processing, shipping label generation, and tracking.
+  </Tab>
+</Tabs>
+
+## Executive Overview
+
+### KPI Cards
+
+Four key metrics displayed at top of overview tab:
+
+<CardGroup cols={2}>
+  <Card title="Ventas Totales" icon="dollar-sign">
+    **Total Sales (Current Month)**
+    
+    ```typescript
+    <div className="text-2xl font-bold">
+      ${stats.kpi.totalSales.toLocaleString()}
+    </div>
+    <p className="text-xs text-muted-foreground">
+      +20.1% vs mes anterior
+    </p>
+    ```
+    
+    Shows revenue for current month with month-over-month comparison.
+  </Card>
+  
+  <Card title="Ticket Promedio" icon="activity">
+    **Average Order Value**
+    
+    ```typescript
+    <div className="text-2xl font-bold">
+      ${Math.round(stats.kpi.averageTicket).toLocaleString()}
+    </div>
+    ```
+    
+    Calculated as: `totalSales / totalOrders`
+  </Card>
+  
+  <Card title="Órdenes Activas" icon="package">
+    **Pending Orders**
+    
+    ```typescript
+    <div className="text-2xl font-bold">
+      {stats.kpi.pendingOrders}
+    </div>
+    <p className="text-xs text-muted-foreground">
+      Pendientes de despacho
+    </p>
+    ```
+    
+    Count of orders waiting to be fulfilled.
+  </Card>
+  
+  <Card title="Total Pedidos" icon="users">
+    **Total Orders**
+    
+    ```typescript
+    <div className="text-2xl font-bold">
+      {stats.kpi.totalOrders}
+    </div>
+    ```
+    
+    Lifetime order count.
+  </Card>
+</CardGroup>
+
+<Info>
+  **Permission-based Display**: Financial data (sales, totals) only visible to user "kaiu". Other admin users see order counts but not revenue.
+  
+  ```typescript
+  const currentUser = sessionStorage.getItem('kaiu_admin_user') || 'kaiu';
+  const showFinancials = currentUser.toLowerCase() === 'kaiu';
+  ```
+</Info>
+
+### Sales Chart
+
+**Daily Sales Visualization** (Last 30 days)
+
+```typescript
+<ResponsiveContainer width="100%" height={300}>
+  <BarChart data={stats.charts.sales}>
+    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+    <XAxis 
+      dataKey="date"
+      tickFormatter={(val) => new Date(val).toLocaleDateString(
+        undefined, {day: '2-digit', month: '2-digit'}
+      )}
+    />
+    <YAxis tickFormatter={(val) => `$${(val/1000)}k`} />
+    <Tooltip formatter={(val) => [`$${val.toLocaleString()}`, 'Ventas']} />
+    <Bar dataKey="total" fill="#4F6D7A" radius={[4, 4, 0, 0]} />
+  </BarChart>
+</ResponsiveContainer>
+```
+
+**Data structure:**
+```json
+[
+  { "date": "2024-01-01", "total": 450000 },
+  { "date": "2024-01-02", "total": 320000 },
+  ...
+]
+```
+
+### Order Status Distribution
+
+**Pie Chart** showing current order breakdown:
+
+```typescript
+<PieChart>
+  <Pie
+    data={stats.charts.status}
+    cx="50%"
+    cy="50%"
+    innerRadius={60}
+    outerRadius={80}
+    paddingAngle={5}
+    dataKey="value"
+  >
+    {stats.charts.status.map((entry, index) => (
+      <Cell key={index} fill={COLORS[index % COLORS.length]} />
+    ))}
+  </Pie>
+  <Tooltip />
+  <Legend />
+</PieChart>
+```
+
+**Data structure:**
+```json
+[
+  { "name": "Pendientes", "value": 15 },
+  { "name": "En Tránsito", "value": 8 },
+  { "name": "Entregados", "value": 127 },
+  { "name": "Cancelados", "value": 3 }
+]
+```
+
+## Shipment Management
+
+### Order Lifecycle States
+
+Orders flow through multiple states, organized into filters:
+
+<Accordion>
+  <AccordionGroup>
+    <Accordion title="Por Procesar (To Process)">
+      **Orders needing shipping label generation**
+      
+      States included:
+      - `PENDING` - Just created
+      - `APPROVED` - Payment confirmed (online)
+      - `PREPARING` - Being packed
+      - `PROCESSING` - In process
+      - `CONFIRMED` - Confirmed by customer
+      
+      **Action:** Generate shipping label
+      
+      ```typescript
+      ['PENDING', 'APPROVED', 'PREPARING', 'PROCESSING', 'CONFIRMED']
+        .includes(order.status)
+      ```
+    </Accordion>
+    
+    <Accordion title="Por Recoger (Ready for Pickup)">
+      **Orders with label generated, waiting for carrier pickup request**
+      
+      State: `READY_TO_SHIP`
+      
+      **Actions:**
+      - Reprint label
+      - Request pickup from carrier
+      
+      ```typescript
+      <Button onClick={() => handleRequestPickup(orderId)}>
+        <Truck className="mr-2 h-3 w-3" />
+        Solicitar Recogida
+      </Button>
+      ```
+    </Accordion>
+    
+    <Accordion title="En Tránsito (In Transit)">
+      **Orders in carrier's hands**
+      
+      States included:
+      - `PICKUP_REQUESTED` - Waiting for carrier to collect
+      - `SHIPPED` - In transit
+      - `NOVEDAD` - Delivery issue/incident
+      - `DISPATCHED` - Out for delivery
+      
+      **Action:** Reprint label (if needed)
+    </Accordion>
+    
+    <Accordion title="Entregados (Delivered)">
+      **Successfully completed orders**
+      
+      State: `DELIVERED`
+      
+      Read-only view for confirmation.
+    </Accordion>
+    
+    <Accordion title="Cancelados (Cancelled)">
+      **Failed or returned orders**
+      
+      States included:
+      - `CANCELLED`
+      - `REJECTED`
+      - `RETURNED`
+      
+      Read-only view for records.
+    </Accordion>
+  </AccordionGroup>
+</Accordion>
+
+### Order Table
+
+**Columns displayed:**
+
+| Column | Description | Source |
+|--------|-------------|--------|
+| PIN | Readable order ID | `order.pin` or `order.readableId` |
+| Fecha | Creation date | `new Date(order.created_at).toLocaleDateString()` |
+| Cliente | Customer name + address | `order.shipping_info.first_name`, `order.shipping_info.last_name` |
+| Productos | Line items with quantities | `order.line_items.map(...)` |
+| Total* | Order total in COP | `$${order.total.toLocaleString()}` |
+| Rastreo | Carrier + tracking number | `order.shipments[0]` |
+| Pago | Payment method badge | `COD` or `Online` |
+| Acciones | Action buttons | Status-dependent |
+
+<Info>
+  *Total column only visible to users with financial permissions.
+</Info>
+
+**Sorting functionality:**
+```typescript
+const handleSort = (key: string) => {
+  let direction: 'asc' | 'desc' = 'asc';
+  if (sortConfig?.key === key && sortConfig.direction === 'asc') {
+    direction = 'desc';
+  }
+  setSortConfig({ key, direction });
+};
+```
+
+Click column headers to sort by:
+- PIN
+- Date (default: newest first)
+- Client name
+- Product count
+- Total amount
+
+### Payment Filter
+
+Additional filter to segment by payment type:
+
+<Tabs>
+  <Tab title="Todos">
+    Show all orders regardless of payment method
+  </Tab>
+  <Tab title="Contra Entrega">
+    Filter to COD orders only:
+    ```typescript
+    orders.filter(o => o.payment_method === 'COD')
+    ```
+  </Tab>
+  <Tab title="Pagado">
+    Filter to online payment orders:
+    ```typescript
+    orders.filter(o => o.payment_method !== 'COD')
+    ```
+  </Tab>
+</Tabs>
+
+### Action Buttons
+
+<CardGroup cols={2}>
+  <Card title="Generate/Print Label" icon="printer">
+    **Creates shipping label with carrier**
+    
+    ```typescript
+    const handleGenerateLabel = async (orderId: string) => {
+      setGeneratingLabel(orderId);
+      
+      const res = await fetch('/api/admin/generate-label', {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ orderIds: [orderId] })
+      });
+      
+      const data = await res.json();
+      
+      if (data.data) {
+        // Open PDF in new window
+        window.open(data.data, '_blank');
+        toast({ title: "Guía Generada" });
+        fetchData(); // Refresh order list
+      }
+    };
+    ```
+    
+    **States:**
+    - Primary button for PENDING/PROCESSING orders
+    - Outline button (reprint) for READY_TO_SHIP/SHIPPED orders
+    - Shows spinner while generating
+  </Card>
+  
+  <Card title="Request Pickup" icon="truck">
+    **Notifies carrier to collect package**
+    
+    ```typescript
+    const handleRequestPickup = async (orderId: string) => {
+      const res = await fetch('/api/admin/request-pickup', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ orderIds: [orderId] })
+      });
+      
+      if (res.ok) {
+        toast({ 
+          title: "Recogida Solicitada",
+          description: "La transportadora ha sido notificada."
+        });
+      }
+    };
+    ```
+    
+    **Shown only for:** `READY_TO_SHIP` status
+    
+    Updates order status to `PICKUP_REQUESTED`
+  </Card>
+</CardGroup>
+
+### Sync Shipments
+
+**Real-time Status Updates**
+
+Manually sync order statuses with carrier:
+
+```typescript
+const handleSyncShipments = async () => {
+  toast({ title: "Sincronizando...", description: "Consultando estados en Venndelo..." });
+  
+  const res = await fetch('/api/admin/sync-shipments', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  
+  const data = await res.json();
+  
+  if (data.success) {
+    toast({
+      title: "Sincronización Completa",
+      description: `Procesadas: ${data.processed}. Actualizadas: ${data.updated}.`
+    });
+    fetchData(); // Refresh order list
+  }
+};
+```
+
+<Info>
+  Sync button queries the logistics provider's API for latest tracking info and updates database accordingly.
+</Info>
+
+## Inventory Management
+
+See detailed documentation: [Inventory Management](/features/inventory)
+
+Brief overview:
+- View all products with stock levels
+- Edit prices, descriptions, and inventory
+- Create new products
+- Toggle product visibility (active/inactive)
+- Upload product images
+
+## Status Badge System
+
+Visual indicators for order states:
+
+```typescript
+const getStatusBadge = (status: string) => {
+  const map: Record<string, string> = {
+    'PENDING': 'bg-yellow-500',
+    'APPROVED': 'bg-green-500',
+    'READY': 'bg-blue-600',
+    'SHIPPED': 'bg-indigo-500',
+    'DELIVERED': 'bg-green-700',
+    'CANCELLED': 'bg-red-500',
+    'READY_TO_SHIP': 'bg-yellow-500',
+    'PICKUP_REQUESTED': 'bg-orange-500'
+  };
+  
+  const labelMap: Record<string, string> = {
+    'PENDING': 'NUEVO',
+    'READY': 'ALISTADO',
+    'SHIPPED': 'ENVIADO',
+    'PREPARING': 'PREPARACIÓN',
+    'READY_TO_SHIP': 'POR DESPACHAR',
+    'PICKUP_REQUESTED': 'ESPERANDO RECOGIDA'
+  };
+  
+  return (
+    <Badge className={`${map[status] || 'bg-gray-500'} text-white`}>
+      {labelMap[status] || status}
+    </Badge>
+  );
+};
+```
+
+<CardGroup cols={3}>
+  <Card title="Yellow" icon="circle">
+    Pending, Ready to Ship
+  </Card>
+  <Card title="Orange" icon="circle">
+    Pickup Requested
+  </Card>
+  <Card title="Blue/Indigo" icon="circle">
+    Ready, Shipped
+  </Card>
+  <Card title="Green" icon="circle">
+    Approved, Delivered
+  </Card>
+  <Card title="Red" icon="circle">
+    Cancelled, Rejected
+  </Card>
+  <Card title="Gray" icon="circle">
+    Unknown/Other
+  </Card>
+</CardGroup>
+
+## Data Refresh
+
+Dashboard automatically fetches latest data on load and provides manual refresh:
+
+```typescript
+const fetchData = async () => {
+  setLoading(true);
+  try {
+    const headers = { 'Authorization': `Bearer ${token}` };
+    
+    // Parallel fetch for performance
+    const [ordersRes, statsRes] = await Promise.all([
+      fetch('/api/admin/orders', { headers }),
+      fetch('/api/admin/dashboard-stats', { headers })
+    ]);
+    
+    if (ordersRes.status === 401 || statsRes.status === 401) {
+      navigate('/admin/login');
+      return;
+    }
+    
+    const ordersData = await ordersRes.json();
+    setOrders(ordersData.items || ordersData.results || []);
+    
+    if (statsRes.ok) {
+      const statsData = await statsRes.json();
+      setStats(statsData);
+    }
+  } catch (error) {
+    toast({ 
+      title: "Error Crítico",
+      description: error.message,
+      variant: "destructive"
+    });
+  } finally {
+    setLoading(false);
+  }
+};
+
+useEffect(() => {
+  if (!token) {
+    navigate('/admin/login');
+    return;
+  }
+  fetchData();
+}, [token, navigate]);
+```
+
+**Refresh button:**
+```typescript
+<Button variant="outline" onClick={fetchData} disabled={loading}>
+  <RefreshCw className={loading ? 'animate-spin' : ''} />
+  Actualizar
+</Button>
+```
+
+## Responsive Design
+
+Dashboard adapts to different screen sizes:
+
+- **Desktop**: Full table view with all columns
+- **Tablet**: Horizontal scroll for table
+- **Mobile**: Stacked card layout (via overflow-x-auto)
+
+```typescript
+<CardContent className="p-0 overflow-x-auto">
+  <Table className="min-w-[1000px]">
+    {/* Table content */}
+  </Table>
+</CardContent>
+```
+
+## API Endpoints Used
+
+| Endpoint | Method | Purpose |
+|----------|--------|----------|
+| `/api/admin/login` | POST | Authenticate admin |
+| `/api/admin/orders` | GET | Fetch order list |
+| `/api/admin/dashboard-stats` | GET | Get KPIs and chart data |
+| `/api/admin/generate-label` | POST | Create shipping label |
+| `/api/admin/request-pickup` | POST | Request carrier pickup |
+| `/api/admin/sync-shipments` | POST | Sync tracking statuses |
+| `/api/admin/inventory` | GET/POST/PUT | Manage products |
+
+## Related Features
+
+<CardGroup cols={3}>
+  <Card title="Order Management" icon="box" href="/features/order-management">
+    Detailed order fulfillment workflows
+  </Card>
+  
+  <Card title="Inventory" icon="warehouse" href="/features/inventory">
+    Product catalog and stock management
+  </Card>
+  
+  <Card title="E-commerce" icon="shopping-cart" href="/features/ecommerce">
+    Customer-facing store features
+  </Card>
+</CardGroup>

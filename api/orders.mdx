@@ -1,0 +1,317 @@
+---
+title: 'Create Order'
+description: 'Create a new order with logistics integration'
+---
+
+## POST /api/create-order
+
+Creates a new order, reserves inventory, and generates a shipment with the logistics provider (Venndelo).
+
+<Warning>
+This endpoint performs multiple critical operations: stock reservation, database persistence, and logistics API calls. Ensure all required fields are provided to avoid partial failures.
+</Warning>
+
+### Request Body
+
+<ParamField body="billing_info" type="object" required>
+  Customer billing information
+  
+  <ParamField body="billing_info.first_name" type="string" required>
+    First name
+  </ParamField>
+  
+  <ParamField body="billing_info.last_name" type="string" required>
+    Last name
+  </ParamField>
+  
+  <ParamField body="billing_info.email" type="string" required>
+    Email address
+  </ParamField>
+  
+  <ParamField body="billing_info.phone" type="string" required>
+    Phone number
+  </ParamField>
+  
+  <ParamField body="billing_info.identification_type" type="string" required>
+    ID type (e.g., "CC", "NIT")
+  </ParamField>
+  
+  <ParamField body="billing_info.identification" type="string" required>
+    Identification number
+  </ParamField>
+</ParamField>
+
+<ParamField body="shipping_info" type="object" required>
+  Shipping destination information
+  
+  <ParamField body="shipping_info.first_name" type="string" required>
+    Recipient first name
+  </ParamField>
+  
+  <ParamField body="shipping_info.last_name" type="string" required>
+    Recipient last name
+  </ParamField>
+  
+  <ParamField body="shipping_info.address_1" type="string" required>
+    Delivery address
+  </ParamField>
+  
+  <ParamField body="shipping_info.city_code" type="string" required>
+    DANE city code
+  </ParamField>
+  
+  <ParamField body="shipping_info.subdivision_code" type="string" required>
+    DANE department code
+  </ParamField>
+  
+  <ParamField body="shipping_info.country_code" type="string" required>
+    Country code (e.g., "CO")
+  </ParamField>
+  
+  <ParamField body="shipping_info.phone" type="string" required>
+    Recipient phone
+  </ParamField>
+  
+  <ParamField body="shipping_info.postal_code" type="string">
+    Postal code (optional)
+  </ParamField>
+</ParamField>
+
+<ParamField body="line_items" type="array" required>
+  Array of products to order
+  
+  <ParamField body="line_items[].sku" type="string" required>
+    Product SKU
+  </ParamField>
+  
+  <ParamField body="line_items[].name" type="string" required>
+    Product name
+  </ParamField>
+  
+  <ParamField body="line_items[].unit_price" type="number" required>
+    Unit price
+  </ParamField>
+  
+  <ParamField body="line_items[].quantity" type="number" required>
+    Quantity
+  </ParamField>
+  
+  <ParamField body="line_items[].weight" type="number" required>
+    Weight in kilograms
+  </ParamField>
+  
+  <ParamField body="line_items[].weight_unit" type="string" required>
+    Weight unit (must be "KG")
+  </ParamField>
+  
+  <ParamField body="line_items[].dimensions_unit" type="string" required>
+    Dimensions unit (must be "CM")
+  </ParamField>
+  
+  <ParamField body="line_items[].height" type="number" required>
+    Height in centimeters
+  </ParamField>
+  
+  <ParamField body="line_items[].width" type="number" required>
+    Width in centimeters
+  </ParamField>
+  
+  <ParamField body="line_items[].length" type="number" required>
+    Length in centimeters
+  </ParamField>
+  
+  <ParamField body="line_items[].type" type="string">
+    Item type: "STANDARD" or "VIRTUAL" (default: "STANDARD")
+  </ParamField>
+</ParamField>
+
+<ParamField body="payment_method_code" type="string" required>
+  Payment method: "COD" (cash on delivery) or "EXTERNAL_PAYMENT" (Wompi)
+</ParamField>
+
+<ParamField body="external_order_id" type="string" required>
+  External order reference ID
+</ParamField>
+
+<ParamField body="pickup_info" type="object">
+  Optional pickup location (if different from default warehouse)
+</ParamField>
+
+<ParamField body="discounts" type="array">
+  Optional discounts array
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates if order was created successfully
+</ResponseField>
+
+<ResponseField name="order" type="object">
+  Order details
+  
+  <ResponseField name="order.db_id" type="string">
+    Internal database UUID
+  </ResponseField>
+  
+  <ResponseField name="order.readable_id" type="number">
+    Human-readable order number (e.g., 1050)
+  </ResponseField>
+  
+  <ResponseField name="order.external_id" type="string">
+    Venndelo shipment ID
+  </ResponseField>
+  
+  <ResponseField name="order.total" type="number">
+    Total amount including shipping
+  </ResponseField>
+  
+  <ResponseField name="order.shipping_cost" type="number">
+    Shipping cost
+  </ResponseField>
+  
+  <ResponseField name="order.carrier_name" type="string">
+    Logistics carrier name
+  </ResponseField>
+  
+  <ResponseField name="order.trackingNumber" type="string">
+    Tracking number (if available)
+  </ResponseField>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:3001/api/create-order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "billing_info": {
+      "first_name": "Ana",
+      "last_name": "García",
+      "email": "ana@example.com",
+      "phone": "+573001234567",
+      "identification_type": "CC",
+      "identification": "1234567890"
+    },
+    "shipping_info": {
+      "first_name": "Ana",
+      "last_name": "García",
+      "address_1": "Calle 123 #45-67, Apto 301",
+      "city_code": "11001",
+      "subdivision_code": "11",
+      "country_code": "CO",
+      "phone": "+573001234567",
+      "postal_code": "110111"
+    },
+    "line_items": [
+      {
+        "sku": "SERUM-VITAMIN-C",
+        "name": "Serum Vitamina C",
+        "unit_price": 89000,
+        "quantity": 1,
+        "weight": 0.15,
+        "weight_unit": "KG",
+        "dimensions_unit": "CM",
+        "height": 12,
+        "width": 4,
+        "length": 4,
+        "type": "STANDARD"
+      }
+    ],
+    "payment_method_code": "COD",
+    "external_order_id": "WEB-20260304-001"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "order": {
+    "db_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "readable_id": 1050,
+    "external_id": "VND-2026-001234",
+    "total": 104500,
+    "shipping_cost": 15500,
+    "carrier_name": "Coordinadora",
+    "trackingNumber": null
+  }
+}
+```
+
+## Order Processing Flow
+
+1. **Validation**: Request data is validated using Zod schema
+2. **Stock Reservation**: Inventory is reserved for all line items
+3. **Database Creation**: Order is created with status `PENDING`
+4. **Logistics Integration**: Shipment is created with Venndelo
+5. **Confirmation**: Order is updated with external ID and shipping cost
+6. **Email Notification**: Confirmation email sent (COD orders only)
+
+## Payment Methods
+
+### COD (Cash on Delivery)
+
+When `payment_method_code: "COD"`:
+- Stock is immediately confirmed (deducted from inventory)
+- Order confirmation email is sent immediately
+- Payment collected upon delivery
+
+### EXTERNAL_PAYMENT (Wompi)
+
+When `payment_method_code: "EXTERNAL_PAYMENT"`:
+- Stock is reserved but not confirmed
+- Stock confirmed after webhook payment confirmation
+- Email sent after payment confirmation
+
+## Error Responses
+
+### 400 Bad Request - Invalid Data
+
+```json
+{
+  "error": "Datos inválidos",
+  "details": {
+    "billing_info": {
+      "email": {
+        "_errors": ["Invalid email"]
+      }
+    }
+  }
+}
+```
+
+### 409 Conflict - Insufficient Stock
+
+```json
+{
+  "error": "Producto SERUM-VITAMIN-C no tiene stock suficiente. Disponible: 0, Solicitado: 1"
+}
+```
+
+### 500 Internal Server Error - Database Error
+
+```json
+{
+  "error": "Error guardando orden en base de datos"
+}
+```
+
+### 502 Bad Gateway - Logistics Error
+
+```json
+{
+  "error": "Error creando envío con transportadora",
+  "details": "Venndelo API timeout"
+}
+```
+
+## Rollback Mechanism
+
+<Info>
+The endpoint implements automatic rollback on failures:
+- If logistics creation fails, the order is cancelled and stock is released
+- If database save fails, stock reservation is released
+- All operations are atomic to prevent inconsistent states
+</Info>

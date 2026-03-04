@@ -1,0 +1,247 @@
+---
+title: 'Admin Portal Guide'
+description: 'Complete guide to using the KAIU Admin Operations Dashboard'
+icon: 'shield-check'
+---
+
+## Overview
+
+The KAIU Admin Portal is your central hub for managing orders, tracking shipments, and monitoring business performance. Access the portal at `/admin/login` with your admin credentials.
+
+<Info>
+The dashboard automatically refreshes data and uses real-time synchronization with your shipping providers.
+</Info>
+
+## Accessing the Portal
+
+<Steps>
+  <Step title="Navigate to Login">
+    Go to `/admin/login` in your browser. The system uses JWT token authentication stored in session storage.
+  </Step>
+  
+  <Step title="Enter Credentials">
+    Enter your admin username and password. The system will verify against the backend `/api/admin/login` endpoint.
+  </Step>
+  
+  <Step title="Session Management">
+    Once logged in, your token is stored as `kaiu_admin_token` in session storage. The token is automatically included in all API requests via the `Authorization: Bearer` header.
+  </Step>
+</Steps>
+
+<Tip>
+If you receive a 401 error, you'll be automatically redirected back to the login page. Session tokens expire for security.
+</Tip>
+
+## Dashboard Overview
+
+The admin dashboard has three main tabs:
+
+### 1. Executive Summary (Resumen Ejecutivo)
+
+View key performance indicators and charts:
+
+- **Total Sales (Month)**: Sum of all approved orders in the current month
+- **Average Ticket**: Mean order value across all transactions  
+- **Active Orders**: Count of orders pending shipment/delivery
+- **Total Orders**: All orders in the system
+
+<Note>
+Financial data is only visible to users with the username `kaiu`. Other admin users see limited metrics.
+</Note>
+
+**Charts Available:**
+- **Sales Behavior**: 30-day bar chart showing daily revenue trends
+- **Order Status Distribution**: Pie chart breaking down orders by status (Pending, Confirmed, Shipped, Delivered, Cancelled)
+
+Data is fetched from `/api/admin/dashboard-stats` endpoint.
+
+### 2. Inventory Management
+
+Manage your product catalog directly from the dashboard. See the [Inventory Management](/features/inventory) feature for detailed instructions.
+
+**Quick Actions:**
+- Add new products or variants
+- Update pricing and stock levels
+- Toggle product visibility (active/inactive)
+- Upload product images
+- Manage dimensions for shipping calculations
+
+### 3. Shipment Management (Gestión de Envíos)
+
+This is your primary workspace for order fulfillment.
+
+## Order Lifecycle States
+
+Orders move through different status filters on the left sidebar:
+
+<CodeGroup>
+```javascript Status Filters
+'DETAILS'        → Por Procesar (New orders needing labels)
+'READY_TO_SHIP'  → Por Recoger (Labels generated, awaiting pickup)
+'IN_TRANSIT'     → En Tránsito (Picked up by carrier)
+'DELIVERED'      → Entregados (Successfully delivered)
+'CANCELLED'      → Cancelados (Rejected or returned)
+```
+</CodeGroup>
+
+### Status Definitions
+
+| Status | Description | Actions Available |
+|--------|-------------|------------------|
+| PENDING | New order, payment pending | Generate Label |
+| CONFIRMED | Payment approved | Generate Label |
+| READY_TO_SHIP | Label created, ready for pickup | Request Pickup, Reprint Label |
+| PICKUP_REQUESTED | Carrier notified, awaiting collection | Reprint Label |
+| SHIPPED | In transit with carrier | Track shipment |
+| DELIVERED | Successfully delivered | View tracking |
+| CANCELLED | Order cancelled/rejected | - |
+
+## Payment Filters
+
+Filter orders by payment method:
+
+- **Todos**: Show all orders
+- **Contra Entrega (COD)**: Cash on delivery orders
+- **Pagado (Online)**: Pre-paid orders via Wompi
+
+<Tip>
+Use payment filters to prioritize COD orders which need extra verification before shipping.
+</Tip>
+
+## Order Table Features
+
+### Sortable Columns
+
+Click any column header to sort:
+- **PIN**: Order ID number
+- **Fecha**: Creation date  
+- **Cliente**: Customer name (from shipping info)
+- **Productos**: Product count
+- **Total**: Order value (only visible to `kaiu` user)
+
+### Order Information Display
+
+Each row shows:
+
+```typescript Order Structure
+{
+  pin: "12345",                    // Readable order ID
+  customer_name: "Juan Pérez",     // Full name
+  created_at: "2024-03-04",        // Order date
+  status: "READY_TO_SHIP",         // Current status
+  payment_method: "COD",           // Payment type
+  shipping_info: {                 // Delivery address
+    first_name, last_name, email, phone,
+    address_1, city
+  },
+  line_items: [                    // Products ordered
+    { name, quantity, sku }
+  ],
+  shipments: [                     // Tracking info
+    { carrier_name, tracking_number }
+  ]
+}
+```
+
+### Tracking Number Links
+
+Click any tracking number to open `https://kaiu.com.co/rastreo?guide={tracking_number}` in a new tab for real-time status updates.
+
+## Refreshing Data
+
+Use the **Actualizar** (Refresh) button in the top right to reload:
+- All order data from `/api/admin/orders`
+- Dashboard statistics from `/api/admin/dashboard-stats`
+
+The button shows a spinning icon while loading.
+
+## Sync Shipments Feature
+
+The **Sincronizar** button queries Venndelo for shipment status updates:
+
+<Steps>
+  <Step title="Click Sync Button">
+    Located in the shipments tab top bar
+  </Step>
+  
+  <Step title="Backend Processing">
+    Calls `/api/admin/sync-shipments` which fetches latest tracking data from carriers
+  </Step>
+  
+  <Step title="View Results">
+    Toast notification shows: "Procesadas: X. Actualizadas: Y."
+  </Step>
+</Steps>
+
+<Warning>
+Sync operations can take 10-30 seconds. Don't refresh the page while syncing.
+</Warning>
+
+## User Permissions
+
+The system recognizes user roles based on the `kaiu_admin_user` session storage value:
+
+- **kaiu**: Full access including financial data
+- **Other users**: Limited access, no revenue/pricing visibility
+
+## Logout
+
+Click the **Salir** button in the header to:
+1. Remove `kaiu_admin_token` from session storage
+2. Redirect to `/admin/login`
+
+<Note>
+Logging out does not invalidate the JWT token server-side. Tokens expire based on the configured TTL.
+</Note>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Regular Sync" icon="rotate">
+    Sync shipments at least twice daily to keep tracking data current
+  </Card>
+  
+  <Card title="Monitor Low Stock" icon="box">
+    Check inventory tab for products with stock < 5 (highlighted in red)
+  </Card>
+  
+  <Card title="Quick Filters" icon="filter">
+    Use status sidebar + payment filters together to segment order queues
+  </Card>
+  
+  <Card title="Batch Actions" icon="layer-group">
+    Process all "Por Procesar" orders first thing each morning
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+### Dashboard Not Loading
+
+- Check console for 401 errors (token expired)
+- Verify `/api/admin/dashboard-stats` is responding
+- Clear session storage and re-login
+
+### Orders Missing
+
+- Ensure orders exist in the database (check `/api/admin/orders` response)
+- Verify filter selections aren't hiding orders
+- Check if search term is active
+
+### Sync Failing
+
+- Verify `VENNDELO_API_KEY` environment variable is set
+- Check network tab for API response errors
+- Ensure external order IDs are properly linked
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Order Fulfillment" icon="truck" href="/guides/order-fulfillment">
+    Learn how to generate labels and request pickups
+  </Card>
+  
+  <Card title="Inventory Management" icon="boxes-stacked" href="/features/inventory">
+    Manage products, stock levels, and pricing
+  </Card>
+</CardGroup>

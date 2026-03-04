@@ -1,0 +1,383 @@
+---
+title: 'Knowledge Base Management'
+description: 'Manage FAQ documents and policies for AI chatbot responses'
+icon: 'book-open'
+---
+
+## Knowledge Base Overview
+
+The knowledge base stores company policies, shipping information, and FAQs that the AI chatbot uses to answer customer questions beyond product catalog queries.
+
+<Info>
+Knowledge base entries support RAG (Retrieval Augmented Generation) for semantic search.
+</Info>
+
+## Database Schema
+
+Knowledge entries are stored in the `knowledge_base` table:
+
+```prisma Schema
+model KnowledgeBase {
+  id         String   @id @default(uuid())
+  content    String   @db.Text          // Raw text content
+  metadata   Json?                       // { title, type }
+  embedding  Unsupported("vector(1536)")?  // OpenAI embeddings (optional)
+  createdAt  DateTime @default(now())
+}
+```
+
+## API Endpoints
+
+### GET /api/admin/knowledge
+
+Fetch all knowledge base entries.
+
+**Request:**
+```bash
+curl -H "Authorization: Bearer {token}" \
+  https://api.kaiu.com.co/api/admin/knowledge
+```
+
+**Response:**
+```json
+[
+  {
+    "id": "a1b2c3...",
+    "content": "Los envíos a Bogotá tardan 1-2 días hábiles...",
+    "metadata": {
+      "title": "Tiempos de Envío",
+      "type": "Política"
+    },
+    "createdAt": "2024-03-04T10:00:00Z"
+  }
+]
+```
+
+<Note>
+The embedding vector is excluded from the response to save bandwidth (query uses `SELECT` without embedding field).
+</Note>
+
+### POST /api/admin/knowledge
+
+Add a new knowledge base entry.
+
+**Request:**
+```bash
+curl -X POST \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "Manejamos contra entrega (COD) en Bogotá, Medellín y Cali.",
+    "title": "Métodos de Pago",
+    "type": "Política"
+  }' \
+  https://api.kaiu.com.co/api/admin/knowledge
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "id": "d4e5f6..."
+}
+```
+
+**Implementation:**
+
+```javascript Create Entry (knowledge.js:26-40)
+const { content, title, type } = req.body;
+if (!content) return res.status(400).json({ error: 'Content is required' });
+
+const newKnowledge = await prisma.knowledgeBase.create({
+  data: {
+    content,
+    metadata: { 
+      title: title || 'Sin Título', 
+      type: type || 'Documento' 
+    }
+  }
+});
+```
+
+<Tip>
+Embedding generation is not implemented yet. Add OpenAI embeddings API call here for vector search.
+</Tip>
+
+### DELETE /api/admin/knowledge
+
+Remove a knowledge base entry.
+
+**Request:**
+```bash
+curl -X DELETE \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  -d '{"id": "a1b2c3..."}' \
+  https://api.kaiu.com.co/api/admin/knowledge
+```
+
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
+## Adding Knowledge via Admin Panel
+
+While there's no dedicated UI yet, you can add entries programmatically:
+
+<Steps>
+  <Step title="Prepare Content">
+    Write clear, concise answers to common questions:
+    
+    - Shipping times by city
+    - Payment methods accepted
+    - Return/exchange policies
+    - Product usage instructions
+    - Contact information
+  </Step>
+  
+  <Step title="Authenticate">
+    Get admin token from session storage or login endpoint.
+  </Step>
+  
+  <Step title="POST Request">
+    Use curl, Postman, or JavaScript fetch:
+    
+    ```javascript
+    const res = await fetch('/api/admin/knowledge', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        content: "Los tiempos de entrega son 1-2 días en Bogotá...",
+        title: "Tiempos de Entrega",
+        type: "FAQ"
+      })
+    });
+    ```
+  </Step>
+  
+  <Step title="Verify Creation">
+    GET the knowledge list to confirm entry was added.
+  </Step>
+</Steps>
+
+## Content Guidelines
+
+### Writing Effective Knowledge Entries
+
+<AccordionGroup>
+  <Accordion title="Use Clear, Direct Language">
+    **Good**: "Manejamos contra entrega (COD) en Bogotá, Medellín y Cali."
+    
+    **Bad**: "Bueno, pues, como que aceptamos COD en algunas ciudades grandes, depende..."
+  </Accordion>
+  
+  <Accordion title="Include Specific Details">
+    **Good**: "Envíos a Bogotá: 1-2 días. Medellín: 2-3 días. Otras ciudades: 3-5 días."
+    
+    **Bad**: "Los envíos tardan un tiempo razonable dependiendo de la ciudad."
+  </Accordion>
+  
+  <Accordion title="Avoid Ambiguity">
+    **Good**: "Costo de envío: $8.000 en Bogotá, $12.000 en otras ciudades."
+    
+    **Bad**: "El envío cuesta algo así como 8 mil o más o menos dependiendo."
+  </Accordion>
+  
+  <Accordion title="Update Regularly">
+    Review and update knowledge entries monthly to reflect:
+    - New shipping zones
+    - Updated pricing
+    - New payment methods
+    - Changed policies
+  </Accordion>
+</AccordionGroup>
+
+## Metadata Types
+
+Use consistent metadata for organization:
+
+| Type | Use Case | Example Title |
+|------|----------|---------------|
+| **FAQ** | Common questions | "¿Cuánto tarda el envío?" |
+| **Política** | Company policies | "Política de Devoluciones" |
+| **Producto** | Product care instructions | "Cómo usar aceites esenciales" |
+| **Contacto** | Support info | "Horarios de Atención" |
+| **Promoción** | Current offers | "Descuento Black Friday" |
+
+## AI Integration
+
+The chatbot uses the `searchKnowledgeBase` tool to query knowledge:
+
+### Current Status (Disabled)
+
+```javascript Placeholder Response (Retriever.js:107-113)
+async function executeSearchKnowledgeBase(query) {
+  return JSON.stringify({ 
+    info: "Políticas y RAG desactivado temporalmente por limites de RAM.",
+    original_query: query 
+  });
+}
+```
+
+<Warning>
+Knowledge base search is currently disabled due to memory constraints. Enable by implementing vector similarity search.
+</Warning>
+
+### Implementing Vector Search
+
+To enable semantic search:
+
+<Steps>
+  <Step title="Generate Embeddings">
+    When creating entries, call OpenAI Embeddings API:
+    
+    ```javascript
+    import { OpenAIEmbeddings } from "@langchain/openai";
+    
+    const embeddings = new OpenAIEmbeddings();
+    const vector = await embeddings.embedQuery(content);
+    
+    await prisma.knowledgeBase.create({
+      data: { content, metadata, embedding: vector }
+    });
+    ```
+  </Step>
+  
+  <Step title="Similarity Search">
+    Query using Postgres pgvector:
+    
+    ```sql
+    SELECT content, metadata, 
+           1 - (embedding <=> $1) as similarity
+    FROM knowledge_base
+    ORDER BY similarity DESC
+    LIMIT 3;
+    ```
+  </Step>
+  
+  <Step title="Return Results to AI">
+    Format results for Claude:
+    
+    ```javascript
+    const results = await similaritySearch(queryEmbedding);
+    return JSON.stringify({
+      results: results.map(r => ({
+        content: r.content,
+        title: r.metadata.title,
+        similarity: r.similarity
+      }))
+    });
+    ```
+  </Step>
+</Steps>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Chunk Long Content" icon="scissors">
+    Split long policies into multiple entries (max 500 words each) for better retrieval.
+  </Card>
+  
+  <Card title="Use Keywords" icon="tags">
+    Include common customer phrases in content: "envío gratis", "contra entrega", "devolución".
+  </Card>
+  
+  <Card title="Test AI Responses" icon="flask">
+    After adding knowledge, test chatbot with related questions to verify retrieval.
+  </Card>
+  
+  <Card title="Version Control" icon="code-branch">
+    Keep a backup/changelog of policy updates to track what changed and when.
+  </Card>
+</CardGroup>
+
+## Example Knowledge Entries
+
+### Shipping Policy
+
+```json
+{
+  "content": "TIEMPOS DE ENTREGA: Bogotá y Soacha 1-2 días hábiles. Medellín y Cali 2-3 días. Otras ciudades principales 3-5 días. Zonas rurales 5-8 días. COSTOS: Envío gratis en compras superiores a $80.000. Envíos menores: $8.000 en Bogotá, $12.000 en otras ciudades.",
+  "title": "Tiempos y Costos de Envío",
+  "type": "Política"
+}
+```
+
+### Payment Methods
+
+```json
+{
+  "content": "MÉTODOS DE PAGO: Aceptamos tarjetas débito/crédito online vía Wompi (Visa, Mastercard, Amex). También manejamos contra entrega (COD) en Bogotá, Medellín, Cali y Barranquilla. El pago contra entrega tiene recargo de $3.000.",
+  "title": "Métodos de Pago",
+  "type": "FAQ"
+}
+```
+
+### Returns Policy
+
+```json
+{
+  "content": "POLÍTICA DE DEVOLUCIONES: Aceptamos devoluciones dentro de 15 días de recibido el producto. El producto debe estar sin abrir y con empaque original. No aceptamos devoluciones de productos abiertos por regulaciones sanitarias. Para iniciar devolución, escribe a contacto@kaiu.com.co con número de orden.",
+  "title": "Devoluciones y Cambios",
+  "type": "Política"
+}
+```
+
+### Product Care
+
+```json
+{
+  "content": "CÓMO USAR ACEITES ESENCIALES: Diluir siempre en aceite portador (coco, almendras) antes de aplicar en piel. Ratio: 2-3 gotas de esencial por cucharada de portador. NO ingerir. Mantener fuera del alcance de niños. Almacenar en lugar fresco y oscuro. Evitar contacto con ojos.",
+  "title": "Instrucciones de Uso - Aceites Esenciales",
+  "type": "Producto"
+}
+```
+
+## Troubleshooting
+
+### Entry Not Created
+
+**Symptom**: POST returns error or no ID.
+
+**Solutions**:
+- Check `content` field is not empty
+- Verify auth token is valid
+- Check database connection
+- Review backend logs for Prisma errors
+
+### AI Not Using Knowledge
+
+**Symptom**: Bot doesn't reference policies in answers.
+
+**Solutions**:
+- Confirm `searchKnowledgeBase` tool is enabled (currently disabled)
+- Check knowledge content matches customer question keywords
+- Verify embeddings are generated and stored
+- Test similarity search query directly
+
+### Duplicate Content
+
+**Symptom**: Multiple similar entries returned.
+
+**Solutions**:
+- Delete redundant entries using DELETE endpoint
+- Consolidate similar topics into single comprehensive entry
+- Use metadata types to organize content
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Chatbot Management" icon="messages" href="/guides/chatbot-management">
+    Configure AI assistant behavior
+  </Card>
+  
+  <Card title="Admin Portal" icon="shield-check" href="/guides/admin-portal">
+    Access knowledge management endpoints
+  </Card>
+</CardGroup>

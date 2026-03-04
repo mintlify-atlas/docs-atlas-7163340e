@@ -1,0 +1,407 @@
+---
+title: Environment Setup
+description: Configure production environment variables for KAIU Natural Living
+---
+
+Proper environment configuration is critical for running KAIU Natural Living in production. This guide covers all required environment variables and best practices.
+
+## Environment File Structure
+
+The project uses multiple environment files:
+
+- `.env.local` - Main application environment variables
+- `prisma/.env` - Prisma-specific database configuration
+- `.env.example` - Template with all required variables
+
+<Warning>
+**Security First**
+
+Never commit `.env`, `.env.local`, or `prisma/.env` files to your repository. These files contain sensitive credentials and should be added to `.gitignore`.
+</Warning>
+
+## Required Environment Variables
+
+### Database Configuration
+
+<Steps>
+  <Step title="PostgreSQL Database">
+    Set up your PostgreSQL connection string:
+    
+    ```bash
+    DATABASE_URL="postgresql://user:password@host:port/database?schema=public"
+    ```
+    
+    **Recommended Provider**: [Supabase](https://supabase.com)
+    
+    1. Create a new Supabase project
+    2. Navigate to Settings → Database
+    3. Copy the connection string (URI format)
+    4. Ensure the `pgvector` extension is enabled
+    
+    <Info>
+    Supabase automatically includes the `pgvector` extension, which is required for the RAG (Retrieval-Augmented Generation) functionality.
+    </Info>
+  </Step>
+
+  <Step title="Redis Configuration">
+    Configure Redis for BullMQ job queues:
+    
+    ```bash
+    REDIS_HOST="your-redis-host.upstash.io"
+    REDIS_PORT="6379"
+    REDIS_PASSWORD="your-redis-password"
+    ```
+    
+    **Recommended Provider**: [Upstash](https://upstash.com)
+    
+    1. Create a new Upstash Redis database
+    2. Copy the host, port, and password
+    3. Or use Railway's managed Redis service
+    
+    For local development:
+    ```bash
+    REDIS_HOST="localhost"
+    REDIS_PORT="6379"
+    ```
+  </Step>
+</Steps>
+
+### WhatsApp Cloud API
+
+<Steps>
+  <Step title="Get WhatsApp Credentials">
+    Obtain credentials from [Meta for Developers](https://developers.facebook.com):
+    
+    1. Create a Facebook App
+    2. Add WhatsApp product
+    3. Set up a phone number
+    4. Generate access token
+    
+    Configure these variables:
+    
+    ```bash
+    WHATSAPP_PHONE_NUMBER_ID="your-phone-number-id"
+    WHATSAPP_ACCESS_TOKEN="your-access-token"
+    WHATSAPP_VERIFY_TOKEN="your-custom-verify-token"
+    WHATSAPP_BUSINESS_ACCOUNT_ID="your-business-account-id"
+    ```
+  </Step>
+
+  <Step title="Verify Token">
+    The verify token is a custom string you create for webhook verification:
+    
+    ```bash
+    WHATSAPP_VERIFY_TOKEN="your-secure-random-string"
+    ```
+    
+    <Warning>
+    Use a strong, random string for the verify token. This prevents unauthorized webhook access.
+    </Warning>
+  </Step>
+</Steps>
+
+### AI Configuration
+
+<Steps>
+  <Step title="Anthropic API Key">
+    Get your API key from [Anthropic Console](https://console.anthropic.com):
+    
+    ```bash
+    ANTHROPIC_API_KEY="sk-ant-api03-..."
+    ```
+    
+    The application uses Claude 3.5 Sonnet for:
+    - Customer conversation handling
+    - RAG-based knowledge retrieval
+    - Natural language understanding
+  </Step>
+
+  <Step title="AI Configuration Options">
+    Optional AI behavior settings:
+    
+    ```bash
+    AI_MODEL="claude-3-5-sonnet-20241022"
+    AI_TEMPERATURE="0.7"
+    AI_MAX_TOKENS="2048"
+    ```
+  </Step>
+</Steps>
+
+### Application Configuration
+
+```bash
+# Server Configuration
+PORT="3001"
+NODE_ENV="production"
+
+# Frontend URL (for CORS)
+FRONTEND_URL="https://your-domain.com"
+
+# API Base URL
+API_URL="https://your-domain.com/api"
+
+# Session Secret (for JWT)
+JWT_SECRET="your-secure-random-secret"
+SESSION_SECRET="your-session-secret"
+```
+
+### Optional: Email Configuration
+
+If using email notifications:
+
+```bash
+RESEND_API_KEY="re_..."
+EMAIL_FROM="noreply@yourdomain.com"
+```
+
+## Complete Environment Template
+
+Here's a complete `.env.local` template:
+
+```bash
+# Database
+DATABASE_URL="postgresql://user:password@host:port/database?schema=public"
+
+# Redis
+REDIS_HOST="your-redis-host"
+REDIS_PORT="6379"
+REDIS_PASSWORD="your-redis-password"
+
+# WhatsApp Cloud API
+WHATSAPP_PHONE_NUMBER_ID="your-phone-number-id"
+WHATSAPP_ACCESS_TOKEN="your-access-token"
+WHATSAPP_VERIFY_TOKEN="your-verify-token"
+WHATSAPP_BUSINESS_ACCOUNT_ID="your-business-account-id"
+
+# Anthropic AI
+ANTHROPIC_API_KEY="sk-ant-api03-..."
+
+# Application
+PORT="3001"
+NODE_ENV="production"
+FRONTEND_URL="https://your-domain.com"
+API_URL="https://your-domain.com/api"
+JWT_SECRET="your-jwt-secret"
+SESSION_SECRET="your-session-secret"
+
+# Optional: Email
+RESEND_API_KEY="re_..."
+EMAIL_FROM="noreply@yourdomain.com"
+```
+
+## Platform-Specific Setup
+
+### Vercel
+
+<Steps>
+  <Step title="Add Variables in Dashboard">
+    1. Go to Project Settings → Environment Variables
+    2. Add each variable individually
+    3. Select environments (Production, Preview, Development)
+    4. Save changes
+  </Step>
+
+  <Step title="Reference in Code">
+    Vercel automatically injects environment variables:
+    
+    ```javascript
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    ```
+  </Step>
+</Steps>
+
+### Railway
+
+<Steps>
+  <Step title="Add Variables in Service">
+    1. Select your service
+    2. Go to "Variables" tab
+    3. Add variables (Railway auto-provides `DATABASE_URL` and `REDIS_URL`)
+    4. Click "Deploy" to apply changes
+  </Step>
+
+  <Step title="Use Railway CLI">
+    For local testing with production variables:
+    
+    ```bash
+    railway run npm run dev
+    ```
+  </Step>
+</Steps>
+
+### VPS (Self-Hosted)
+
+<Steps>
+  <Step title="Create Environment File">
+    SSH into your server and create `.env.local`:
+    
+    ```bash
+    cd /path/to/kaiu-natural-living
+    nano .env.local
+    ```
+    
+    Paste your environment variables and save.
+  </Step>
+
+  <Step title="Secure the File">
+    Set appropriate permissions:
+    
+    ```bash
+    chmod 600 .env.local
+    ```
+  </Step>
+
+  <Step title="Load in Application">
+    Use a process manager like PM2:
+    
+    ```bash
+    pm2 start server.mjs --name kaiu-app
+    ```
+  </Step>
+</Steps>
+
+## Database Initialization
+
+After configuring environment variables:
+
+<Steps>
+  <Step title="Install Dependencies">
+    ```bash
+    npm install
+    ```
+  </Step>
+
+  <Step title="Generate Prisma Client">
+    ```bash
+    npx prisma generate
+    ```
+  </Step>
+
+  <Step title="Push Database Schema">
+    ```bash
+    npx prisma db push
+    ```
+    
+    <Info>
+    This creates all required tables based on your Prisma schema.
+    </Info>
+  </Step>
+
+  <Step title="Enable pgvector Extension">
+    Connect to your database and run:
+    
+    ```sql
+    CREATE EXTENSION IF NOT EXISTS vector;
+    ```
+    
+    For Supabase:
+    1. Go to Database → Extensions
+    2. Search for "vector"
+    3. Enable the extension
+  </Step>
+
+  <Step title="Seed Initial Data (Optional)">
+    ```bash
+    npm run seed
+    ```
+    
+    This loads initial products, categories, and knowledge base entries.
+  </Step>
+</Steps>
+
+## Validation
+
+Validate your environment setup:
+
+<Steps>
+  <Step title="Test Database Connection">
+    ```bash
+    npx prisma studio
+    ```
+    
+    This opens Prisma Studio to browse your database.
+  </Step>
+
+  <Step title="Test Redis Connection">
+    Start your application and check logs:
+    
+    ```bash
+    npm run api
+    ```
+    
+    Look for Redis connection success messages.
+  </Step>
+
+  <Step title="Test WhatsApp Webhook">
+    Send a test message to your WhatsApp number and verify:
+    - Webhook receives the message
+    - AI processes and responds
+    - Conversation appears in dashboard
+  </Step>
+</Steps>
+
+<Warning>
+**Production Checklist**
+
+- [ ] All environment variables are set correctly
+- [ ] Database URL uses production credentials (not development)
+- [ ] `pgvector` extension is enabled
+- [ ] Redis is accessible from your application
+- [ ] WhatsApp webhook is verified and receiving events
+- [ ] Anthropic API key is valid and has sufficient credits
+- [ ] JWT and session secrets are strong, random strings
+- [ ] `.env` files are in `.gitignore`
+- [ ] SSL/TLS is enabled for all external connections
+- [ ] Database backups are configured
+</Warning>
+
+## Troubleshooting
+
+### Database Connection Fails
+
+- Verify `DATABASE_URL` format is correct
+- Check database allows connections from your deployment IP
+- Ensure database is running and accessible
+- Test connection using Prisma Studio
+
+### Redis Connection Fails
+
+- Verify `REDIS_HOST`, `REDIS_PORT`, and `REDIS_PASSWORD`
+- Check Redis instance is running
+- Test connection using Redis CLI or GUI
+- Ensure firewall allows connections
+
+### WhatsApp Webhook Errors
+
+- Verify `WHATSAPP_VERIFY_TOKEN` matches Meta configuration
+- Check webhook URL is publicly accessible
+- Review webhook logs in Meta for Developers
+- Ensure SSL certificate is valid
+
+### AI Responses Not Working
+
+- Verify `ANTHROPIC_API_KEY` is correct
+- Check API key has available credits
+- Review Anthropic API status
+- Check application logs for AI errors
+
+## Security Best Practices
+
+1. **Rotate Secrets Regularly**: Change API keys, tokens, and secrets periodically
+2. **Use Strong Secrets**: Generate random strings for JWT and session secrets
+3. **Limit Access**: Use least-privilege principles for database users
+4. **Enable 2FA**: For all service accounts (Supabase, Anthropic, etc.)
+5. **Monitor Usage**: Set up alerts for unusual API usage
+6. **Backup Credentials**: Store credentials securely (e.g., password manager)
+7. **Environment Isolation**: Keep development and production credentials separate
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Vercel Deployment" icon="rocket" href="/deployment/vercel">
+    Deploy to Vercel with these variables
+  </Card>
+  <Card title="Railway Deployment" icon="train" href="/deployment/railway">
+    Deploy to Railway with these variables
+  </Card>
+</CardGroup>

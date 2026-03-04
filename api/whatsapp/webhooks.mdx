@@ -1,0 +1,279 @@
+---
+title: 'WhatsApp Webhooks'
+description: 'Handle incoming WhatsApp messages and verify webhook subscriptions'
+---
+
+## Overview
+
+The WhatsApp webhook integration receives real-time notifications from Meta's WhatsApp Business API. It handles webhook verification, signature validation, and message processing through a BullMQ queue system.
+
+**Endpoint:** `/api/whatsapp/webhook`
+
+## Webhook Verification (GET)
+
+Meta requires webhook verification during initial setup. This endpoint handles the verification challenge.
+
+### Request
+
+```http
+GET /api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=YOUR_TOKEN&hub.challenge=CHALLENGE_STRING
+```
+
+<ParamField query="hub.mode" type="string" required>
+  Must be `subscribe` for webhook verification
+</ParamField>
+
+<ParamField query="hub.verify_token" type="string" required>
+  Verification token configured in `WHATSAPP_VERIFY_TOKEN` environment variable
+</ParamField>
+
+<ParamField query="hub.challenge" type="string" required>
+  Random string provided by Meta to echo back
+</ParamField>
+
+### Response
+
+```http
+200 OK
+CHALLENGE_STRING
+```
+
+Returns the challenge string if verification succeeds, or `403 Forbidden` if token mismatch occurs.
+
+### Example Implementation
+
+```javascript server.mjs:97
+import whatsappWebhook from './backend/whatsapp/webhook.js';
+
+app.use('/api/whatsapp', whatsappWebhook);
+```
+
+## Incoming Messages (POST)
+
+Receives incoming WhatsApp messages from Meta's webhook notifications.
+
+### Security: Signature Validation
+
+All incoming webhooks **must** include an `X-Hub-Signature-256` header for request integrity verification.
+
+```javascript webhook.js:12-49
+function validateSignature(req, res, next) {
+    const signature = req.headers['x-hub-signature-256'];
+    
+    if (!signature) {
+        console.warn("⚠️ Missing X-Hub-Signature-256");
+        if (process.env.NODE_ENV === 'production' || APP_SECRET) {
+             return res.status(401).send("Missing Signature");
+        }
+    }
+
+    if (APP_SECRET && signature) {
+        const elements = signature.split('=');
+        const signatureHash = elements[1];
+        
+        // Use raw body for HMAC verification
+        const payload = req.rawBody || JSON.stringify(req.body);
+        
+        const expectedHash = crypto.createHmac('sha256', APP_SECRET)
+                                   .update(payload)
+                                   .digest('hex');
+
+        if (signatureHash !== expectedHash) {
+             console.error("❌ Invalid Signature");
+        }
+    }
+    
+    next();
+}
+```
+
+<Note>
+  The signature is computed using HMAC-SHA256 with your `WHATSAPP_APP_SECRET` against the **raw request body**. Ensure `req.rawBody` is available via middleware.
+</Note>
+
+### Raw Body Middleware
+
+To enable signature validation, configure Express to capture raw body:
+
+```javascript server.mjs:61-65
+app.use(express.json({
+    verify: (req, res, buf) => {
+        req.rawBody = buf;
+    }
+}));
+```
+
+### Request Body
+
+<ParamField body="object" type="string" required>
+  Must be `whatsapp_business_account` for WhatsApp events
+</ParamField>
+
+<ParamField body="entry" type="array" required>
+  Array of webhook entries containing message data
+  
+  <Expandable title="Entry Structure">
+    <ParamField body="entry[0].changes" type="array">
+      Array of changes, typically contains one change object
+      
+      <ParamField body="entry[0].changes[0].value" type="object">
+        Contains the actual message data
+        
+        <ParamField body="value.messages" type="array">
+          Array of messages received
+          
+          <ParamField body="messages[0].id" type="string">
+            Unique WhatsApp message ID (wamid)
+          </ParamField>
+          
+          <ParamField body="messages[0].from" type="string">
+            Sender's phone number
+          </ParamField>
+          
+          <ParamField body="messages[0].type" type="string">
+            Message type (e.g., `text`, `image`, `audio`)
+          </ParamField>
+          
+          <ParamField body="messages[0].text.body" type="string">
+            Message content (for text messages)
+          </ParamField>
+          
+          <ParamField body="messages[0].timestamp" type="string">
+            Unix timestamp of message
+          </ParamField>
+        </ParamField>
+      </ParamField>
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Response
+
+```http
+200 OK
+```
+
+The endpoint **immediately** returns `200 OK` to prevent Meta webhook timeouts, then processes the message asynchronously via BullMQ.
+
+### Message Processing Flow
+
+```javascript webhook.js:71-105
+router.post('/webhook', validateSignature, async (req, res) => {
+    // IMMEDIATE 200 OK
+    res.sendStatus(200);
+
+    const body = req.body;
+
+    if (body.object === 'whatsapp_business_account') {
+        try {
+            const entry = body.entry?.[0];
+            const changes = entry?.changes?.[0];
+            const value = changes?.value;
+            const message = value?.messages?.[0];
+
+            if (message && message.type === 'text') {
+                const wamid = message.id;
+                
+                // Add to Queue for processing
+                await whatsappQueue.add('process-message', {
+                    wamid,
+                    from: message.from,
+                    text: message.text.body,
+                    timestamp: message.timestamp
+                }, {
+                    jobId: wamid, // Deduplication via BullMQ
+                    removeOnComplete: true
+                });
+                
+                console.log(`📥 Queued message from ${message.from}: ${wamid}`);
+            }
+        } catch (error) {
+            console.error("❌ Error encolando mensaje:", error.message);
+        }
+    }
+});
+```
+
+<Warning>
+  Messages are processed **asynchronously** after responding to Meta. This prevents webhook timeouts but requires proper error handling in the queue worker.
+</Warning>
+
+### Example Webhook Payload
+
+```json
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "WHATSAPP_BUSINESS_ACCOUNT_ID",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "15551234567",
+              "phone_number_id": "PHONE_NUMBER_ID"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Customer Name"
+                },
+                "wa_id": "573001234567"
+              }
+            ],
+            "messages": [
+              {
+                "from": "573001234567",
+                "id": "wamid.HBgNNTczMDA...",
+                "timestamp": "1677649200",
+                "text": {
+                  "body": "Hola, necesito ayuda con mi pedido"
+                },
+                "type": "text"
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Environment Variables
+
+<ParamField path="WHATSAPP_APP_SECRET" type="string" required>
+  App secret from Meta for HMAC signature validation
+</ParamField>
+
+<ParamField path="WHATSAPP_VERIFY_TOKEN" type="string" required>
+  Custom verification token for webhook setup
+</ParamField>
+
+<ParamField path="REDIS_URL" type="string">
+  Redis connection URL for BullMQ queue (optional, defaults to localhost)
+</ParamField>
+
+## Error Handling
+
+| Scenario | Status Code | Response |
+|----------|-------------|----------|
+| Missing signature (production) | `401` | `Missing Signature` |
+| Invalid signature | `403` | `Invalid Signature` |
+| Verification token mismatch | `403` | (empty) |
+| Missing verification params | `400` | (empty) |
+| Valid webhook | `200` | (empty) |
+| Valid verification | `200` | Challenge string |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Queue System" icon="gears" href="/api/whatsapp/queue-system">
+    Learn how messages are processed via BullMQ
+  </Card>
+  <Card title="Session Management" icon="comments" href="/api/whatsapp/session-management">
+    Understand session lifecycle and bot handover
+  </Card>
+</CardGroup>

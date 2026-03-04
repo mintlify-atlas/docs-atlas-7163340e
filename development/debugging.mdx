@@ -1,0 +1,469 @@
+---
+title: Debugging Tips
+description: Tools and techniques for debugging KAIU Natural Living
+---
+
+## Overview
+
+Effective debugging strategies for both frontend and backend components of KAIU Natural Living.
+
+## Browser DevTools
+
+### React DevTools
+
+Install the React DevTools extension:
+- [Chrome](https://chrome.google.com/webstore/detail/react-developer-tools/fmkadmapgofadopljbjfkapdkoienihi)
+- [Firefox](https://addons.mozilla.org/en-US/firefox/addon/react-devtools/)
+
+**Usage:**
+1. Open browser DevTools (F12)
+2. Navigate to "React" tab
+3. Inspect component tree and props
+4. Profile component renders
+
+### Network Tab
+
+Debug API calls:
+1. Open DevTools → Network tab
+2. Filter by "Fetch/XHR"
+3. Inspect request/response headers and payloads
+4. Check status codes and response times
+
+### Console Debugging
+
+Add strategic console logs:
+
+```typescript
+// Debug component renders
+function ProductCard({ product }) {
+  console.log('ProductCard render:', product);
+  return <div>{product.name}</div>;
+}
+
+// Debug API responses
+const fetchProducts = async () => {
+  const response = await fetch('/api/products');
+  const data = await response.json();
+  console.log('Products fetched:', data);
+  return data;
+};
+```
+
+## Frontend Debugging
+
+### Vite Dev Server
+
+The dev server runs on port 8080 with HMR (Hot Module Replacement):
+
+```bash
+npm run dev
+```
+
+**Source Maps:** Automatically enabled in development for accurate debugging.
+
+### React Query DevTools
+
+If using React Query, add DevTools:
+
+```typescript
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
+
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <YourApp />
+      <ReactQueryDevtools initialIsOpen={false} />
+    </QueryClientProvider>
+  );
+}
+```
+
+### State Debugging
+
+Debug Context state:
+
+```typescript
+import { useContext, useEffect } from 'react';
+import { CartContext } from '@/context/CartContext';
+
+function DebugCart() {
+  const cart = useContext(CartContext);
+  
+  useEffect(() => {
+    console.log('Cart state changed:', cart);
+  }, [cart]);
+  
+  return null;
+}
+```
+
+### Component Isolation
+
+Test components in isolation:
+
+```typescript
+// Create a debug route
+import { ProductCard } from '@/components/ProductCard';
+
+function DebugPage() {
+  const mockProduct = {
+    id: '1',
+    name: 'Test Product',
+    price: 10000
+  };
+  
+  return <ProductCard product={mockProduct} />;
+}
+```
+
+## Backend Debugging
+
+### Node.js Inspector
+
+Debug the backend with Chrome DevTools:
+
+```bash
+node --inspect server.mjs
+```
+
+Then:
+1. Open Chrome
+2. Navigate to `chrome://inspect`
+3. Click "Open dedicated DevTools for Node"
+4. Set breakpoints and inspect variables
+
+### Nodemon with Inspect
+
+For hot reload with debugging:
+
+```bash
+nodemon --inspect server.mjs
+```
+
+### Console Logging
+
+Add detailed logs in backend:
+
+```javascript
+// backend/create-order.js
+export async function createOrder(orderData) {
+  console.log('[CREATE ORDER] Input:', JSON.stringify(orderData, null, 2));
+  
+  try {
+    const order = await prisma.order.create({ data: orderData });
+    console.log('[CREATE ORDER] Success:', order.id);
+    return order;
+  } catch (error) {
+    console.error('[CREATE ORDER] Error:', error);
+    throw error;
+  }
+}
+```
+
+### Request Logging Middleware
+
+Log all requests:
+
+```javascript
+// server.mjs
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
+  console.log('Body:', req.body);
+  console.log('Query:', req.query);
+  next();
+});
+```
+
+## Database Debugging
+
+### Prisma Studio
+
+Visual database browser:
+
+```bash
+npx prisma studio
+```
+
+Opens at `http://localhost:5555`
+
+### Query Logging
+
+Enable Prisma query logs:
+
+```javascript
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient({
+  log: ['query', 'info', 'warn', 'error'],
+});
+```
+
+### Raw SQL Queries
+
+Debug complex queries:
+
+```javascript
+const result = await prisma.$queryRaw`
+  SELECT * FROM products WHERE price > 40000
+`;
+console.log('Query result:', result);
+```
+
+### Transaction Debugging
+
+```javascript
+try {
+  const result = await prisma.$transaction(async (tx) => {
+    console.log('Transaction started');
+    
+    const order = await tx.order.create({ data: orderData });
+    console.log('Order created:', order.id);
+    
+    const items = await tx.orderItem.createMany({ data: itemsData });
+    console.log('Items created:', items.count);
+    
+    return order;
+  });
+} catch (error) {
+  console.error('Transaction failed:', error);
+}
+```
+
+## Redis Debugging
+
+### Redis CLI
+
+Inspect Redis data:
+
+```bash
+redis-cli
+
+# List all keys
+KEYS *
+
+# Get specific key
+GET session:abc123
+
+# Monitor all commands
+MONITOR
+```
+
+### BullMQ Job Debugging
+
+```javascript
+import { Queue } from 'bullmq';
+
+const queue = new Queue('whatsapp-messages');
+
+// Get job status
+const job = await queue.getJob(jobId);
+console.log('Job state:', await job.getState());
+console.log('Job data:', job.data);
+console.log('Job progress:', job.progress);
+
+// Get failed jobs
+const failed = await queue.getFailed();
+console.log('Failed jobs:', failed);
+```
+
+## API Debugging
+
+### Test Endpoints with cURL
+
+```bash
+# Test product endpoint
+curl http://localhost:3001/api/products
+
+# Test with POST data
+curl -X POST http://localhost:3001/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{"customerName":"Test User","items":[]}'
+```
+
+### Using Postman
+
+Import and test API endpoints:
+1. Create a collection for KAIU APIs
+2. Add environment variables (base URL, tokens)
+3. Test all endpoints
+4. Save example responses
+
+### Simulate WhatsApp Webhooks
+
+Use the provided test script:
+
+```bash
+node simulate-whatsapp.mjs
+```
+
+This sends mock WhatsApp webhook events to your local server.
+
+### Simulate Payment Events
+
+```bash
+node simulate-wompi-events.js
+```
+
+Tests Wompi payment webhook handling.
+
+## AI/RAG Debugging
+
+### Test AI Responses
+
+```bash
+node test-ai.js
+```
+
+Tests the AI orchestrator in isolation.
+
+### Vector Search Debugging
+
+```javascript
+// backend/services/ai/Retriever.js
+const results = await retriever.search(query);
+console.log('Retrieved chunks:', results.map(r => ({
+  content: r.content.substring(0, 100),
+  score: r.score
+})));
+```
+
+### LangChain Tracing
+
+Enable verbose logging:
+
+```javascript
+import { ChatAnthropic } from '@langchain/anthropic';
+
+const model = new ChatAnthropic({
+  modelName: 'claude-3-5-sonnet-20240620',
+  verbose: true, // Enable tracing
+});
+```
+
+## Environment Debugging
+
+### Check Environment Variables
+
+```javascript
+// Check if env vars are loaded
+console.log('Environment check:', {
+  hasDatabase: !!process.env.DATABASE_URL,
+  hasRedis: !!process.env.REDIS_HOST,
+  hasWhatsApp: !!process.env.WHATSAPP_TOKEN,
+  hasAI: !!process.env.ANTHROPIC_API_KEY,
+});
+```
+
+### Verify Services
+
+```bash
+# Check Redis
+redis-cli ping
+
+# Check PostgreSQL
+psql $DATABASE_URL -c "SELECT version();"
+
+# Check if ports are open
+lsof -i :3001  # Backend
+lsof -i :8080  # Frontend
+lsof -i :6379  # Redis
+```
+
+## Performance Debugging
+
+### React Profiler
+
+```typescript
+import { Profiler } from 'react';
+
+function onRenderCallback(id, phase, actualDuration) {
+  console.log(`${id} (${phase}) took ${actualDuration}ms`);
+}
+
+<Profiler id="ProductList" onRender={onRenderCallback}>
+  <ProductList />
+</Profiler>
+```
+
+### Backend Performance
+
+```javascript
+const start = Date.now();
+const products = await getProducts();
+const duration = Date.now() - start;
+console.log(`getProducts took ${duration}ms`);
+```
+
+## Common Issues
+
+### Frontend Build Errors
+
+```bash
+# Clear cache and rebuild
+rm -rf node_modules/.vite
+npm run dev
+```
+
+### API Not Responding
+
+Check if backend is running:
+
+```bash
+curl http://localhost:3001/api/health
+```
+
+Check server logs for errors.
+
+### Database Connection Issues
+
+```bash
+# Test connection
+npx prisma db pull
+
+# Check if migrations are applied
+npx prisma migrate status
+```
+
+### Redis Connection Failed
+
+```bash
+# Check if Redis is running
+redis-cli ping
+
+# Start Redis
+redis-server --daemonize yes
+```
+
+## Debugging Tools
+
+### VSCode Debugger
+
+Create `.vscode/launch.json`:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Backend",
+      "program": "${workspaceFolder}/server.mjs",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}
+```
+
+### Chrome Debugger for Frontend
+
+1. Add breakpoints in source code
+2. Open DevTools → Sources
+3. Find your file in the webpack:// section
+4. Step through code execution
+
+## Next Steps
+
+- Review [Testing Guide](/development/testing)
+- Explore [Contributing Guidelines](/development/contributing)
+- Check [Code Style Guide](/development/code-style)

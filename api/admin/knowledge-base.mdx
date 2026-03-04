@@ -1,0 +1,348 @@
+---
+title: 'Knowledge Base API'
+description: 'Manage RAG content for AI-powered customer support'
+icon: 'brain'
+---
+
+<Warning>
+  All endpoints require JWT authentication via `Authorization: Bearer <token>` header.
+</Warning>
+
+---
+
+## Overview
+
+The Knowledge Base API manages content for Retrieval-Augmented Generation (RAG) used by the AI chatbot. Content is stored with vector embeddings for semantic search.
+
+<Info>
+  **RAG Architecture**: Documents are stored with metadata and optionally vector embeddings for similarity search. The current implementation stores text content; embeddings can be generated via a background worker or OpenAI API integration.
+</Info>
+
+---
+
+## Get All Knowledge
+
+<Card title="GET /api/admin/knowledge" icon="list">
+  Fetch all knowledge base entries without vector embeddings
+</Card>
+
+### Authentication
+
+Required. Validated via `verifyAdminToken(req)` helper.
+
+### Response
+
+Returns an array of knowledge entries ordered by creation date (newest first).
+
+<ResponseField name="items" type="array">
+  <Expandable title="Knowledge Entry">
+    <ResponseField name="id" type="string">
+      Entry UUID
+    </ResponseField>
+    <ResponseField name="content" type="string">
+      The knowledge content text
+    </ResponseField>
+    <ResponseField name="metadata" type="object">
+      Entry metadata
+      <Expandable title="Metadata Fields">
+        <ResponseField name="title" type="string">
+          Entry title
+        </ResponseField>
+        <ResponseField name="type" type="string">
+          Document type (e.g., "Documento", "FAQ", "Política")
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="createdAt" type="datetime">
+      Creation timestamp
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Implementation
+
+From `knowledge.js:16-23`:
+
+```javascript
+if (req.method === 'GET') {
+  // Fetch knowledge without the massive vector embeddings to save bandwidth
+  const items = await prisma.$queryRaw`
+    SELECT id, content, metadata, "createdAt" 
+    FROM knowledge_base 
+    ORDER BY "createdAt" DESC
+  `;
+  return res.status(200).json(items);
+}
+```
+
+<Note>
+  Vector embeddings are **excluded** from GET requests to reduce bandwidth. Embeddings are stored in the database but only used internally for semantic search.
+</Note>
+
+### Example Response
+
+```json
+[
+  {
+    "id": "660e8400-e29b-41d4-a716-446655440001",
+    "content": "KAIU Natural Living ofrece envíos gratis en compras superiores a $150.000 COP en todo Colombia. Los tiempos de entrega son de 3-5 días hábiles en ciudades principales y 5-8 días en zonas rurales.",
+    "metadata": {
+      "title": "Política de Envíos",
+      "type": "Política"
+    },
+    "createdAt": "2026-03-01T10:00:00Z"
+  },
+  {
+    "id": "770e8400-e29b-41d4-a716-446655440002",
+    "content": "Todos nuestros productos son elaborados con ingredientes naturales certificados orgánicos. No utilizamos parabenos, sulfatos ni fragancias sintéticas.",
+    "metadata": {
+      "title": "Certificaciones de Productos",
+      "type": "Documento"
+    },
+    "createdAt": "2026-02-28T14:30:00Z"
+  }
+]
+```
+
+---
+
+## Create Knowledge Entry
+
+<Card title="POST /api/admin/knowledge" icon="plus">
+  Add new knowledge base content
+</Card>
+
+### Request Body
+
+<ParamField body="content" type="string" required>
+  The knowledge content text. Can be multiple paragraphs.
+</ParamField>
+
+<ParamField body="title" type="string">
+  Entry title (default: "Sin Título")
+</ParamField>
+
+<ParamField body="type" type="string">
+  Document type (default: "Documento")
+  
+  Common types:
+  - `Documento` - General information
+  - `FAQ` - Frequently asked questions
+  - `Política` - Company policies
+  - `Producto` - Product information
+  - `Proceso` - Internal processes
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  True if created successfully
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  UUID of newly created entry
+</ResponseField>
+
+### Implementation
+
+From `knowledge.js:26-40`:
+
+```javascript
+else if (req.method === 'POST') {
+  const { content, title, type } = req.body;
+  if (!content) return res.status(400).json({ error: 'Content is required' });
+
+  // Idealmente, aquí también llamaríamos al modelo de Embeddings (ej. OpenAI)
+  // para generar el vector y guardarlo. Por ahora, guardamos el texto plano
+  // que puede ser usado como RAG estático o indexado luego por un worker.
+  
+  const newKnowledge = await prisma.knowledgeBase.create({
+    data: {
+      content,
+      metadata: { title: title || 'Sin Título', type: type || 'Documento' }
+    }
+  });
+  return res.status(201).json({ success: true, id: newKnowledge.id });
+}
+```
+
+<Info>
+  **Future Enhancement**: Vector embeddings can be generated using OpenAI's `text-embedding-ada-002` model or similar. The current implementation stores plain text for static RAG or deferred embedding generation.
+</Info>
+
+### Example Request
+
+```javascript
+const response = await fetch('https://api.kaiucol.com/api/admin/knowledge', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+  },
+  body: JSON.stringify({
+    content: `
+Nuestra política de devoluciones permite cambios o reembolsos dentro de los 
+primeros 30 días de la compra. El producto debe estar sin abrir y en su 
+empaque original. El cliente cubre el costo del envío de devolución.
+
+Para iniciar una devolución:
+1. Contacta servicio al cliente con tu número de orden
+2. Espera el código de autorización
+3. Envía el producto a nuestra bodega en Bogotá
+4. Recibirás el reembolso en 5-10 días hábiles
+    `.trim(),
+    title: 'Política de Devoluciones',
+    type: 'Política'
+  })
+});
+
+const data = await response.json();
+// { success: true, id: "880e8400-e29b-41d4-a716-446655440003" }
+```
+
+---
+
+## Delete Knowledge Entry
+
+<Card title="DELETE /api/admin/knowledge" icon="trash">
+  Remove knowledge base content
+</Card>
+
+### Request Body
+
+<ParamField body="id" type="string" required>
+  UUID of knowledge entry to delete
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  True if deleted successfully
+</ResponseField>
+
+### Implementation
+
+From `knowledge.js:43-48`:
+
+```javascript
+else if (req.method === 'DELETE') {
+  const { id } = req.body;
+  if (!id) return res.status(400).json({ error: 'ID is required' });
+
+  await prisma.knowledgeBase.delete({ where: { id } });
+  return res.status(200).json({ success: true });
+}
+```
+
+### Example Request
+
+```javascript
+await fetch('https://api.kaiucol.com/api/admin/knowledge', {
+  method: 'DELETE',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer <token>'
+  },
+  body: JSON.stringify({
+    id: '880e8400-e29b-41d4-a716-446655440003'
+  })
+});
+```
+
+---
+
+## CORS Configuration
+
+From `knowledge.js:5-10`:
+
+```javascript
+res.setHeader('Access-Control-Allow-Credentials', true);
+res.setHeader('Access-Control-Allow-Origin', '*'); 
+res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST,DELETE');
+res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+if (req.method === 'OPTIONS') return res.status(200).end();
+```
+
+<Warning>
+  **Production Security**: The current CORS configuration allows all origins (`*`). For production, restrict to specific domains:
+  
+  ```javascript
+  res.setHeader('Access-Control-Allow-Origin', 'https://admin.kaiucol.com');
+  ```
+</Warning>
+
+---
+
+## Best Practices
+
+### Content Organization
+
+<CardGroup cols={2}>
+  <Card title="Use Descriptive Titles" icon="heading">
+    Make titles searchable and clear
+  </Card>
+  <Card title="Categorize by Type" icon="tags">
+    Use consistent type values for filtering
+  </Card>
+  <Card title="Keep Content Focused" icon="bullseye">
+    One topic per entry for better RAG retrieval
+  </Card>
+  <Card title="Update Regularly" icon="arrows-rotate">
+    Delete outdated policies and refresh content
+  </Card>
+</CardGroup>
+
+### Example: Bulk Import FAQs
+
+```javascript
+const faqs = [
+  {
+    title: '¿Cuál es el tiempo de entrega?',
+    content: 'Los envíos nacionales tardan 3-5 días hábiles en ciudades principales.'
+  },
+  {
+    title: '¿Los productos son veganos?',
+    content: 'Sí, todos nuestros productos son 100% veganos y cruelty-free.'
+  }
+];
+
+for (const faq of faqs) {
+  await fetch('https://api.kaiucol.com/api/admin/knowledge', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      content: faq.content,
+      title: faq.title,
+      type: 'FAQ'
+    })
+  });
+}
+```
+
+---
+
+## Database Schema
+
+```prisma
+model KnowledgeBase {
+  id        String   @id @default(uuid())
+  content   String   // The knowledge text
+  embedding Unsupported("vector(1536)")? // Optional: OpenAI embeddings
+  metadata  Json     // { title, type, ... }
+  createdAt DateTime @default(now())
+  
+  @@map("knowledge_base")
+}
+```
+
+<Tip>
+  The `embedding` field uses PostgreSQL's `pgvector` extension for semantic similarity search. Install with:
+  
+  ```sql
+  CREATE EXTENSION vector;
+  ```
+</Tip>
