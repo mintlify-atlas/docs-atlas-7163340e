@@ -98,7 +98,8 @@
               "api/admin/orders",
               "api/admin/inventory",
               "api/admin/knowledge-base",
-              "api/admin/dashboard-stats"
+              "api/admin/dashboard-stats",
+              "api/admin/sessions"
             ]
           },
           {

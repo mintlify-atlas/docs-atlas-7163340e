@@ -1,0 +1,399 @@
+---
+title: Sessions API
+description: Manage WhatsApp chat sessions and send manual messages
+---
+
+## Overview
+
+The Sessions API allows admin users to view active WhatsApp conversations, retrieve message history, toggle bot automation, and send manual messages to customers.
+
+All endpoints require admin authentication via JWT token.
+
+## Endpoints
+
+### List Active Sessions
+
+```http
+GET /api/sessions
+```
+
+Fetches all WhatsApp sessions updated within the last 7 days, ordered by most recent activity.
+
+#### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token from admin login
+</ParamField>
+
+#### Response
+
+<ResponseField name="sessions" type="array">
+  Array of session objects
+  
+  <Expandable title="Session object">
+    <ResponseField name="id" type="string">
+      Unique session identifier (UUID)
+    </ResponseField>
+    
+    <ResponseField name="name" type="string">
+      Customer name or phone number (fallback)
+    </ResponseField>
+    
+    <ResponseField name="phone" type="string">
+      WhatsApp phone number
+    </ResponseField>
+    
+    <ResponseField name="lastMsg" type="string">
+      Last message in conversation
+    </ResponseField>
+    
+    <ResponseField name="time" type="datetime">
+      Last update timestamp
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Session status: `bot`, `human`, or `handover`
+    </ResponseField>
+    
+    <ResponseField name="unread" type="number">
+      Unread message count (currently always 0)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+#### Example Request
+
+```bash
+curl https://api.example.com/api/sessions \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+#### Example Response
+
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Juan Pérez",
+    "phone": "+573001234567",
+    "lastMsg": "¿Tienen el aceite de lavanda disponible?",
+    "time": "2026-03-04T10:30:00Z",
+    "status": "bot",
+    "unread": 0
+  },
+  {
+    "id": "660e8400-e29b-41d4-a716-446655440001",
+    "phone": "+573009876543",
+    "lastMsg": "Quiero hablar con un humano",
+    "time": "2026-03-04T09:15:00Z",
+    "status": "handover",
+    "unread": 0
+  }
+]
+```
+
+---
+
+### Get Session Messages
+
+```http
+GET /api/sessions/:id/messages
+```
+
+Retrieves the conversation history for a specific session.
+
+#### Path Parameters
+
+<ParamField path="id" type="string" required>
+  Session ID (UUID)
+</ParamField>
+
+#### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token from admin login
+</ParamField>
+
+#### Response
+
+<ResponseField name="messages" type="array">
+  Array of message objects
+  
+  <Expandable title="Message object">
+    <ResponseField name="role" type="string">
+      Message sender: `user` or `assistant`
+    </ResponseField>
+    
+    <ResponseField name="content" type="string">
+      Message text content
+    </ResponseField>
+    
+    <ResponseField name="time" type="string">
+      Timestamp (currently "Recently")
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="isBotActive" type="boolean">
+  Whether AI bot is currently active for this session
+</ResponseField>
+
+#### Example Request
+
+```bash
+curl https://api.example.com/api/sessions/550e8400-e29b-41d4-a716-446655440000/messages \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+#### Example Response
+
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hola",
+      "time": "Recently"
+    },
+    {
+      "role": "assistant",
+      "content": "¡Hola! Soy el asistente virtual de KAIU. ¿En qué puedo ayudarte?",
+      "time": "Recently"
+    },
+    {
+      "role": "user",
+      "content": "¿Tienen aceite de lavanda?",
+      "time": "Recently"
+    }
+  ],
+  "isBotActive": true
+}
+```
+
+---
+
+### Toggle Bot Status
+
+```http
+PATCH /api/sessions/:id/toggle
+```
+
+Enable or disable the AI bot for a specific session. When disabled, messages will not trigger automated responses.
+
+#### Path Parameters
+
+<ParamField path="id" type="string" required>
+  Session ID (UUID)
+</ParamField>
+
+#### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token from admin login
+</ParamField>
+
+#### Request Body
+
+<ParamField body="isBotActive" type="boolean" required>
+  Set to `true` to enable bot, `false` to disable
+</ParamField>
+
+#### Response
+
+Returns the updated session object with new `isBotActive` status.
+
+<ResponseField name="id" type="string">
+  Session ID
+</ResponseField>
+
+<ResponseField name="isBotActive" type="boolean">
+  Updated bot status
+</ResponseField>
+
+<ResponseField name="handoverTrigger" type="string | null">
+  Set to `"MANUAL_OVERRIDE"` when manually disabled, or `null` when re-enabled
+</ResponseField>
+
+#### Example Request
+
+```bash
+curl -X PATCH https://api.example.com/api/sessions/550e8400-e29b-41d4-a716-446655440000/toggle \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"isBotActive": false}'
+```
+
+#### Example Response
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "phoneNumber": "+573001234567",
+  "isBotActive": false,
+  "handoverTrigger": "MANUAL_OVERRIDE",
+  "updatedAt": "2026-03-04T11:00:00Z"
+}
+```
+
+---
+
+### Send Manual Message
+
+```http
+POST /api/messages/send
+```
+
+Send a manual message to a customer via WhatsApp. This endpoint sends the message through the WhatsApp Cloud API and appends it to the session history.
+
+#### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token from admin login
+</ParamField>
+
+#### Request Body
+
+<ParamField body="sessionId" type="string" required>
+  Target session ID (UUID)
+</ParamField>
+
+<ParamField body="content" type="string" required>
+  Message text to send
+</ParamField>
+
+#### Response
+
+<ResponseField name="success" type="boolean">
+  `true` if message was sent successfully
+</ResponseField>
+
+#### Example Request
+
+```bash
+curl -X POST https://api.example.com/api/messages/send \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "550e8400-e29b-41d4-a716-446655440000",
+    "content": "Hola Juan, un momento por favor mientras verifico el inventario de lavanda."
+  }'
+```
+
+#### Example Response
+
+```json
+{
+  "success": true
+}
+```
+
+#### Error Response
+
+```json
+{
+  "error": "Session not found"
+}
+```
+
+---
+
+### Upload Product Image
+
+```http
+POST /api/upload
+```
+
+Upload a product image to Supabase Storage. Returns a public URL that can be used in product image arrays.
+
+<Warning>
+  Requires Supabase to be configured with `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` environment variables.
+</Warning>
+
+#### Headers
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token from admin login
+</ParamField>
+
+<ParamField header="Content-Type" type="string" required>
+  `multipart/form-data`
+</ParamField>
+
+#### Request Body
+
+<ParamField body="image" type="file" required>
+  Image file (JPEG, PNG, etc.)
+</ParamField>
+
+#### Response
+
+<ResponseField name="url" type="string">
+  Public URL of the uploaded image
+</ResponseField>
+
+#### Example Request
+
+```bash
+curl -X POST https://api.example.com/api/upload \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -F "image=@product-lavender.jpg"
+```
+
+#### Example Response
+
+```json
+{
+  "url": "https://example.supabase.co/storage/v1/object/public/products/a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpg"
+}
+```
+
+#### Error Responses
+
+**No file uploaded:**
+```json
+{
+  "error": "No file uploaded"
+}
+```
+
+**Supabase not configured:**
+```json
+{
+  "error": "Failed to upload file to Supabase"
+}
+```
+
+---
+
+## Implementation Notes
+
+### Session History Storage
+
+Message history is stored in the `sessionContext.history` JSON field of the `WhatsAppSession` model. Each message has:
+- `role`: Either `"user"` or `"assistant"`
+- `content`: Message text
+- `images`: Optional array of image URLs (for messages with images)
+
+### Real-time Updates
+
+When bot status changes or messages are sent, Socket.IO events are emitted to notify connected dashboard clients:
+
+```javascript
+io.emit('session_update', { id: sessionId, status: 'handover' });
+io.to(`session_${sessionId}`).emit('new_message', { message });
+```
+
+### Security
+
+All endpoints use the `requireAdmin` middleware which:
+1. Verifies JWT token from `Authorization` header
+2. Checks token validity and expiration
+3. Returns 401 Unauthorized if invalid
+
+See [Authentication](/api/authentication) for details on obtaining JWT tokens.
+
+## Next Steps
+
+- Learn about [WhatsApp Webhooks](/api/whatsapp/webhooks)
+- Explore [Session Management](/api/whatsapp/session-management)
+- Review [Admin Dashboard Guide](/guides/admin-portal)
